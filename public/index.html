@@ -1,0 +1,1405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crowdline</title>
+<meta name="description" content="A daily puzzle where you place your take on a line and see how close you are to the crowd." />
+<style>
+  :root {
+    --bg: #f4f6f5;
+    --ink: #26323a;
+    --muted: #93a0aa;
+    --pole-a: #5b8fd9;
+    --pole-b: #f0975a;
+    --accent: #37a578;
+    --ease-pop: cubic-bezier(.34,1.56,.64,1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 "Trebuchet MS", "Segoe UI", -apple-system, sans-serif;
+    display: flex; justify-content: center;
+    padding: 32px 16px;
+    user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+  .app { width: min(680px, 100%); }
+
+  .screen { display: none; }
+  .screen.on { display: block; animation: fade .3s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px);} to { opacity: 1; transform: none; } }
+
+  #soundBtn {
+    position: fixed; top: 14px; right: 14px; z-index: 90;
+    width: 42px; height: 42px; border-radius: 50%;
+    border: none; background: #fff; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(38,50,58,.14);
+    font-size: 18px;
+    transition: transform .15s var(--ease-pop), box-shadow .15s;
+  }
+  #soundBtn:hover { transform: scale(1.08); box-shadow: 0 4px 12px rgba(38,50,58,.2); }
+  #soundBtn:active { transform: scale(.94); }
+
+  /* ---------- title ---------- */
+  #title { text-align: center; padding-top: 6vh; }
+  h1 { font-size: clamp(36px, 8vw, 54px); letter-spacing: -1.5px; line-height: 1.05; }
+  h1 .a { color: var(--pole-a); } h1 .b { color: var(--pole-b); }
+  #title p { color: var(--muted); margin: 12px auto 24px; max-width: 340px; }
+
+  .demo { position: relative; width: min(300px, 76%); height: 56px; margin: 0 auto 26px; }
+  .demo .bar {
+    position: absolute; left: 0; right: 0; bottom: 10px;
+    height: 8px; border-radius: 999px;
+    background: linear-gradient(90deg, var(--pole-a), #eae7db 50%, var(--pole-b));
+  }
+  .demo .dp {
+    position: absolute; bottom: 10px;
+    display: flex; flex-direction: column; align-items: center;
+    transform: translateX(-50%);
+    animation: bob 3.2s ease-in-out infinite;
+  }
+  .demo .dp .d { width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(38,50,58,.3); margin-bottom: -5px; }
+  .demo .dp .s { width: 2px; height: 16px; background: rgba(38,50,58,.2); }
+  .demo .dp .l { font-size: 10px; font-weight: 700; background: #fff; border-radius: 999px; padding: 2px 8px; box-shadow: 0 1px 4px rgba(38,50,58,.12); }
+  .demo .dp:nth-child(2) { left: 16%; animation-delay: 0s; }
+  .demo .dp:nth-child(3) { left: 52%; animation-delay: .5s; }
+  .demo .dp:nth-child(4) { left: 84%; animation-delay: 1s; }
+  @keyframes bob { 0%,100% { transform: translateX(-50%) translateY(0);} 50% { transform: translateX(-50%) translateY(-4px);} }
+
+  .title-btns { display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .promise {
+    display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+    margin: -8px auto 22px; max-width: 430px;
+    color: var(--muted); font-size: 12px; font-weight: 700;
+  }
+  .promise span {
+    background: #fff; border-radius: 999px; padding: 6px 10px;
+    box-shadow: 0 1px 5px rgba(38,50,58,.08);
+  }
+  .daily-tag { font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 300px; overflow-wrap: anywhere; }
+  .stats-link {
+    margin-top: 16px; background: none; border: none; cursor: pointer;
+    font: 700 13px "Trebuchet MS", sans-serif; color: var(--muted);
+    transition: color .15s;
+  }
+  .stats-link:hover { color: var(--ink); }
+
+  .btn {
+    font: 700 16px "Trebuchet MS", sans-serif;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 999px;
+    padding: 13px 34px; cursor: pointer;
+    transition: transform .15s var(--ease-pop), filter .15s, opacity .2s;
+  }
+  .btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+  .btn:active { transform: scale(.96); }
+  .btn:disabled { background: #c5cfc9; cursor: default; transform: none; }
+  .btn:focus-visible { outline: 3px solid var(--pole-a); outline-offset: 2px; }
+  .btn.appear { animation: btnIn .35s var(--ease-pop); }
+  .btn.secondary { background: #fff; color: var(--ink); box-shadow: 0 2px 8px rgba(38,50,58,.1); }
+  @keyframes btnIn { from { opacity: 0; transform: scale(.8); } to { opacity: 1; transform: scale(1); } }
+
+  /* ---------- round ---------- */
+  #round { padding-top: 2vh; }
+  .mode-label {
+    text-align: center; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 8px; min-height: 17px;
+  }
+  .progress { display: flex; gap: 7px; justify-content: center; margin-bottom: 22px; min-height: 11px; }
+  .pdot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #d7dedb; transition: background .4s ease, transform .3s var(--ease-pop);
+  }
+  .pdot.now { background: var(--ink); transform: scale(1.35); }
+
+  .axis {
+    text-align: center;
+    font-size: clamp(19px, 4.6vw, 27px);
+    font-weight: 700; letter-spacing: -.5px;
+    margin-bottom: 6px;
+  }
+  .axis .a { color: var(--pole-a); }
+  .axis .b { color: var(--pole-b); }
+  .axis .arrow { color: var(--muted); font-weight: 400; padding: 0 6px; }
+  .sub { text-align: center; color: var(--muted); font-size: 13px; min-height: 20px; transition: opacity .25s; }
+
+  .stage { position: relative; height: 210px; margin-top: 8px; transition: height .35s ease; }
+  .stage.reveal { height: 290px; }
+  .track {
+    position: absolute; left: 0; right: 0; top: 150px;
+    height: 14px; border-radius: 999px;
+    background: linear-gradient(90deg, var(--pole-a), #eae7db 50%, var(--pole-b));
+    box-shadow: inset 0 1px 4px rgba(38,50,58,.2);
+    transition: top .35s ease;
+  }
+  .stage.reveal .track { top: 130px; }
+  .guide {
+    position: absolute; width: 2px; top: 120px; height: 74px;
+    background: var(--ink); opacity: 0; border-radius: 2px;
+    transform: translateX(-50%);
+    transition: opacity .12s;
+    pointer-events: none;
+  }
+  .stage.reveal .guide { display: none; }
+
+  .pin {
+    position: absolute;
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center;
+    transition: left .3s var(--ease-pop), top .3s var(--ease-pop);
+    cursor: grab;
+    touch-action: none;
+    z-index: 3;
+  }
+  .pin.pop { animation: pop .3s var(--ease-pop); }
+  @keyframes pop { 0% { transform: translateX(-50%) scale(.7); } 100% { transform: translateX(-50%) scale(1); } }
+  .pin .lbl {
+    background: #fff; border-radius: 999px;
+    padding: 6px 13px; font-weight: 700; font-size: 13px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.14);
+    white-space: nowrap;
+    transition: box-shadow .15s, transform .15s;
+  }
+  .pin:hover .lbl { box-shadow: 0 4px 12px rgba(38,50,58,.22); transform: translateY(-1px); }
+  .pin .stem { width: 2px; flex: 1; background: rgba(38,50,58,.22); }
+  .pin .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 4px rgba(38,50,58,.32);
+    margin-bottom: -7px;
+  }
+
+  .pin.crowd { cursor: default; z-index: 2; opacity: 0; }
+  .pin.crowd.in { animation: crowdIn .45s var(--ease-pop) forwards; }
+  @keyframes crowdIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(14px); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+  .pin.crowd .dot {
+    background: var(--ink); border: 2px solid #fff;
+    margin-bottom: 0; margin-top: -7px;
+    order: 0;
+  }
+  .pin.crowd .stem { order: 1; }
+  .pin.crowd .lbl {
+    order: 2;
+    background: var(--ink); color: #fff;
+    font-size: 11px; padding: 4px 10px;
+    box-shadow: none;
+  }
+
+  .tray {
+    display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+    min-height: 54px; align-items: center;
+    margin-top: 6px;
+  }
+  .chip {
+    background: #fff; border-radius: 999px;
+    padding: 9px 16px; font-weight: 700; font-size: 14px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.14);
+    cursor: grab; white-space: nowrap;
+    touch-action: none;
+    animation: pop .3s var(--ease-pop);
+    transition: box-shadow .15s, transform .15s;
+  }
+  .chip:hover { box-shadow: 0 5px 14px rgba(38,50,58,.2); transform: translateY(-2px); }
+  .drag-ghost {
+    position: fixed; left: 0; top: 0; z-index: 60;
+    pointer-events: none;
+    will-change: transform;
+    background: #fff; border-radius: 999px;
+    padding: 9px 16px; font-weight: 700; font-size: 14px;
+    box-shadow: 0 10px 24px rgba(38,50,58,.28);
+  }
+
+  .verdict { text-align: center; margin-top: 8px; min-height: 108px; }
+  .score-big { font-size: 50px; font-weight: 700; letter-spacing: -1px; line-height: 1.1; display: inline-block; }
+  .score-big.pop { animation: scorePop .35s var(--ease-pop); }
+  @keyframes scorePop { 0% { transform: scale(1);} 45% { transform: scale(1.18);} 100% { transform: scale(1);} }
+  .quip { color: var(--muted); font-style: italic; max-width: 440px; margin: 2px auto 0; opacity: 0; }
+  .quip.in { animation: fade .4s ease .3s forwards; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 10px; opacity: 0; }
+  .legend.in { animation: fade .4s ease .5s forwards; }
+  .legend .you { display:inline-block; width:11px; height:11px; border-radius:50%; background:#fff; box-shadow: 0 1px 3px rgba(38,50,58,.32); vertical-align:-1px; }
+  .legend .them { display:inline-block; width:11px; height:11px; border-radius:50%; background:var(--ink); vertical-align:-1px; }
+
+  .controls { text-align: center; margin-top: 16px; min-height: 52px; }
+
+  /* ---------- final ---------- */
+  #final { text-align: center; padding-top: 6vh; }
+  .final-score { font-size: 84px; font-weight: 700; letter-spacing: -3px; line-height: 1; display: inline-block; }
+  .final-score.pop { animation: scorePop .35s var(--ease-pop); }
+  .final-grade { font-size: 21px; font-weight: 700; margin: 8px 0 6px; }
+  .final-sub { color: var(--muted); font-size: 14px; margin-bottom: 20px; }
+  .final-bars { display: flex; gap: 8px; justify-content: center; align-items: flex-end; height: 70px; margin-bottom: 20px; }
+  .final-bars:empty { height: 0; margin-bottom: 0; }
+  .fbar {
+    width: 26px; border-radius: 6px 6px 3px 3px;
+    transform-origin: bottom; transform: scaleY(0);
+    animation: grow .5s var(--ease-pop) forwards;
+  }
+  @keyframes grow { to { transform: scaleY(1); } }
+  .squares { font-size: 24px; letter-spacing: 3px; margin-bottom: 14px; }
+  .squares:empty { margin-bottom: 0; }
+
+  .mini-stats { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+  .mini-stats:empty { margin-bottom: 0; }
+
+  /* leaderboard */
+  .lb { max-width: 380px; margin: 0 auto 22px; text-align: left; }
+  .lb:empty { margin-bottom: 0; }
+  .lb h3 { text-align: center; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  .lb-row {
+    display: flex; align-items: center; gap: 10px;
+    background: #fff; border-radius: 12px;
+    padding: 8px 14px; margin-bottom: 6px;
+    box-shadow: 0 2px 6px rgba(38,50,58,.07);
+    animation: fade .3s ease both;
+  }
+  .lb-row.me { outline: 2px solid var(--accent); }
+  .lb-row .rank { font-weight: 700; color: var(--muted); width: 24px; font-size: 13px; }
+  .lb-row .nm { font-weight: 700; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-row .sq { font-size: 12px; letter-spacing: 1px; }
+  .lb-row .sc { font-weight: 700; font-size: 15px; width: 34px; text-align: right; }
+  .lb-note { text-align: center; font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .final-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* ---------- stats ---------- */
+  #stats { text-align: center; padding-top: 6vh; }
+  #stats h2 { font-size: 30px; letter-spacing: -1px; margin-bottom: 26px; }
+  .stat-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; max-width: 420px; margin: 0 auto 18px;
+  }
+  .stat-cell {
+    background: #fff; border-radius: 16px; padding: 16px 8px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.08);
+  }
+  .stat-cell .v { font-size: 30px; font-weight: 700; line-height: 1.1; }
+  .stat-cell .k { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 4px; }
+  .stat-rows { max-width: 420px; margin: 0 auto 26px; }
+  .stat-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    background: #fff; border-radius: 14px; padding: 12px 16px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.08);
+    margin-bottom: 10px; text-align: left;
+  }
+  .stat-row .k { font-size: 12px; color: var(--muted); }
+  .stat-row .v { font-weight: 700; font-size: 14px; }
+  .stat-empty { color: var(--muted); font-style: italic; margin-bottom: 26px; }
+
+  /* ---------- modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(38,50,58,.4);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px;
+    animation: fade .2s ease;
+  }
+  .overlay.on { display: flex; }
+  .modal {
+    background: #fff; border-radius: 20px;
+    padding: 28px 26px; max-width: 340px; width: 100%;
+    text-align: center;
+    box-shadow: 0 16px 48px rgba(38,50,58,.25);
+    animation: btnIn .3s var(--ease-pop);
+  }
+  .modal .big { font-size: 38px; margin-bottom: 8px; }
+  .modal h3 { font-size: 19px; margin-bottom: 8px; }
+  .modal p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
+  .modal .count { font-size: 26px; font-weight: 700; margin-bottom: 16px; letter-spacing: -.5px; }
+  .modal input {
+    width: 100%; padding: 11px 14px; margin-bottom: 14px;
+    border: 2px solid #dfe6e2; border-radius: 12px;
+    font: 700 15px "Trebuchet MS", sans-serif; color: var(--ink);
+    text-align: center; outline: none;
+    transition: border-color .15s;
+  }
+  .modal input:focus { border-color: var(--accent); }
+
+  .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 80; overflow: hidden; }
+  .cf { position: absolute; top: -14px; width: 9px; height: 13px; border-radius: 2px; }
+
+  @media (max-width: 480px) {
+    body { padding: 24px 12px; }
+    .pin .lbl { font-size: 11px; padding: 5px 10px; }
+    .chip { font-size: 13px; padding: 8px 13px; }
+    .stage { height: 225px; }
+    .stage.reveal { height: 300px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .screen.on, .pin.pop, .chip, .pin.crowd.in, .quip.in, .legend.in, .fbar,
+    .btn.appear, .demo .dp, .score-big.pop, .final-score.pop, .lb-row, .overlay, .modal { animation: none; }
+    .pin.crowd { opacity: 1; }
+    .quip, .legend { opacity: 1; }
+    .fbar { transform: scaleY(1); }
+    .pin, .track, .stage { transition: none; }
+  }
+</style>
+</head>
+<body>
+<button id="soundBtn" title="Toggle sound">🔊</button>
+<div class="app">
+
+  <!-- TITLE -->
+  <div id="title" class="screen on">
+    <h1><span class="a">Crowd</span><br/><span class="b">line</span></h1>
+    <p>One daily line. Four tiny judgment calls.<br/>See how close you land to everyone else.</p>
+    <div class="demo" aria-hidden="true">
+      <div class="bar"></div>
+      <div class="dp"><div class="l">a snail</div><div class="s"></div><div class="d"></div></div>
+      <div class="dp"><div class="l">school wifi</div><div class="s"></div><div class="d"></div></div>
+      <div class="dp"><div class="l">gossip</div><div class="s"></div><div class="d"></div></div>
+    </div>
+    <div class="promise">
+      <span>daily puzzle</span>
+      <span>crowd score</span>
+      <span>new line at midnight</span>
+    </div>
+    <div class="title-btns">
+      <div>
+        <button class="btn" id="dailyBtn">Today's Line</button>
+        <div class="daily-tag" id="dailyTag"></div>
+      </div>
+      <button class="btn secondary" id="startBtn">Practice — 5 rounds</button>
+      <button class="stats-link" id="statsBtn">📊 Stats</button>
+    </div>
+  </div>
+
+  <!-- ROUND -->
+  <div id="round" class="screen">
+    <div class="mode-label" id="modeLabel"></div>
+    <div class="progress" id="progress"></div>
+    <div class="axis" id="axisLabel"></div>
+    <div class="sub" id="sub"></div>
+    <div class="stage" id="stage">
+      <div class="track" id="track"></div>
+      <div class="guide" id="guide"></div>
+    </div>
+    <div class="tray" id="tray"></div>
+    <div class="verdict" id="verdict"></div>
+    <div class="controls">
+      <button class="btn" id="submitBtn" disabled>Lock it in</button>
+      <button class="btn" id="nextBtn" style="display:none;">Next</button>
+    </div>
+  </div>
+
+  <!-- FINAL -->
+  <div id="final" class="screen">
+    <div><span class="final-score" id="finalScore">0</span></div>
+    <div class="final-grade" id="finalGrade"></div>
+    <div class="final-sub" id="finalSub"></div>
+    <div class="final-bars" id="finalBars"></div>
+    <div class="squares" id="squares"></div>
+    <div class="mini-stats" id="miniStats"></div>
+    <div class="lb" id="leaderboard"></div>
+    <div class="final-actions">
+      <button class="btn" id="shareBtn" style="display:none;">Share</button>
+      <button class="btn secondary" id="againBtn">Play again</button>
+      <button class="btn secondary" id="homeBtn">Menu</button>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div id="stats" class="screen">
+    <h2>📊 Your Stats</h2>
+    <div id="statsBody"></div>
+    <button class="btn secondary" id="statsBackBtn">Back</button>
+  </div>
+
+</div>
+
+<!-- MODAL -->
+<div class="overlay" id="overlay">
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= STORAGE ADAPTER =================
+   Talks to the local backend when served over HTTP,
+   falls back to localStorage, then to in-memory. Never throws. */
+const store = {
+  mode: (function () {
+    if (location.protocol === "http:" || location.protocol === "https:") return "server";
+    try { localStorage.setItem("__ss_t", "1"); localStorage.removeItem("__ss_t"); return "local"; } catch (e) {}
+    return "memory";
+  })(),
+  _mem: {},
+  _localGet(key) {
+    if (this.mode === "memory") {
+      const v = this._mem[key];
+      return v === undefined ? null : { value: v };
+    }
+    try {
+      const v = localStorage.getItem("ss:" + key);
+      return v === null ? null : { value: v };
+    } catch (e) { return null; }
+  },
+  _localSet(key, value) {
+    if (this.mode === "memory") {
+      this._mem[key] = value;
+      return { key };
+    }
+    try { localStorage.setItem("ss:" + key, value); } catch (e) {}
+    return { key };
+  },
+  _playerId() {
+    try { return localStorage.getItem("ss:pref:pid") || ""; } catch (e) { return ""; }
+  },
+  _url(key, shared) {
+    if (shared) return "/api/store/shared/" + encodeURIComponent(key);
+    const pid = this._playerId();
+    if (!pid || key === "pref:pid") return "";
+    return "/api/store/player/" + encodeURIComponent(pid) + "/" + encodeURIComponent(key);
+  },
+  async get(key, shared) {
+    if (this.mode === "server") {
+      const url = this._url(key, shared);
+      if (url) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) return await res.json();
+          if (res.status === 404) return null;
+        } catch (e) {}
+      }
+    }
+    return this._localGet(key);
+  },
+  async set(key, value, shared) {
+    this._localSet(key, value);
+    if (this.mode === "server") {
+      const url = this._url(key, shared);
+      if (url) {
+        try {
+          const res = await fetch(url, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value })
+          });
+          if (res.ok) return await res.json();
+        } catch (e) {}
+      }
+    }
+    return { key };
+  }
+};
+
+/* ================= SOUND ================= */
+let audioCtx = null, muted = false;
+function ac() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+function tone(freq, dur, type, gain, delay, glideTo) {
+  dur = dur || .12; type = type || "sine"; gain = gain || .14; delay = delay || 0;
+  if (muted) return;
+  try {
+    const c = ac(), t = c.currentTime + delay;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t);
+    if (glideTo) o.frequency.exponentialRampToValueAtTime(Math.max(40, glideTo), t + dur);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(gain, t + .012);
+    g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(g).connect(c.destination);
+    o.start(t); o.stop(t + dur + .05);
+  } catch (e) {}
+}
+const sfx = {
+  click:  () => tone(700, .05, "triangle", .07),
+  pick:   () => tone(520, .06, "triangle", .09),
+  drop:   (pct) => { const f = 280 + pct * 4; tone(f, .16, "sine", .2); tone(f * 2, .1, "sine", .05); },
+  tray:   () => tone(200, .14, "sine", .12, 0, 130),
+  lock:   () => { tone(440, .1, "triangle", .12); tone(660, .16, "triangle", .12, .09); },
+  crowdPin: (i) => tone(330 * Math.pow(1.14, i), .13, "triangle", .1),
+  scoreHigh: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, .16, "triangle", .13, i * .09)),
+  scoreMid:  () => { tone(523, .14, "triangle", .12); tone(659, .18, "triangle", .12, .1); },
+  scoreLow:  () => tone(320, .4, "sawtooth", .07, 0, 180),
+  fanfare:   () => [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, .2, "triangle", .13, i * .1)),
+  womp:      () => { tone(300, .3, "sawtooth", .08, 0, 200); tone(150, .4, "sawtooth", .06, .25, 95); },
+};
+function buzz(ms) { if (navigator.vibrate) try { navigator.vibrate(ms); } catch (e) {} }
+
+async function loadMute() {
+  try {
+    const r = await store.get("pref:muted");
+    muted = r ? r.value === "1" : false;
+  } catch (e) { muted = false; }
+  $("soundBtn").textContent = muted ? "🔇" : "🔊";
+}
+async function toggleMute() {
+  muted = !muted;
+  $("soundBtn").textContent = muted ? "🔇" : "🔊";
+  if (!muted) sfx.click();
+  try { await store.set("pref:muted", muted ? "1" : "0"); } catch (e) {}
+}
+
+/* ================= CONFETTI ================= */
+const CF_COLORS = ["#5b8fd9", "#f0975a", "#37a578", "#f2c14e", "#e46e6e"];
+function confetti(n) {
+  n = n || 50;
+  const wrap = document.createElement("div");
+  wrap.className = "confetti";
+  document.body.appendChild(wrap);
+  for (let i = 0; i < n; i++) {
+    const p = document.createElement("div");
+    p.className = "cf";
+    p.style.left = Math.random() * 100 + "vw";
+    p.style.background = CF_COLORS[i % CF_COLORS.length];
+    wrap.appendChild(p);
+    const fall = 1200 + Math.random() * 1400;
+    const drift = (Math.random() - .5) * 160;
+    p.animate([
+      { transform: "translate(0,0) rotate(0deg)", opacity: 1 },
+      { transform: "translate(" + drift + "px, 105vh) rotate(" + (360 + Math.random() * 540) + "deg)", opacity: .9 }
+    ], { duration: fall, delay: Math.random() * 350, easing: "cubic-bezier(.2,.6,.4,1)", fill: "forwards" });
+  }
+  setTimeout(() => wrap.remove(), 3400);
+}
+
+/* ================= DATA (56 lines) ================= */
+const SEED_WEIGHT = 6;
+
+const ROUNDS = [
+  { id:"edible", a:"Least edible", b:"Most edible",
+    items:[ ["a chainsaw",2], ["a crayon",30], ["gum found under a desk",42], ["fresh bread",97] ] },
+  { id:"zombie", a:"Useless in a zombie apocalypse", b:"Essential",
+    items:[ ["an inflatable flamingo",10], ["a scented candle",22], ["a shopping cart",55], ["a crowbar",90] ] },
+  { id:"scary", a:"Not scary", b:"Terrifying",
+    items:[ ["bubble wrap",3], ["a dentist appointment",55], ["a clown at night",78], ["a spider in your shoe",85] ] },
+  { id:"fast", a:"Slowest", b:"Fastest",
+    items:[ ["a snail",4], ["grandma texting",15], ["school wifi",25], ["gossip spreading",95] ] },
+  { id:"sticky", a:"Not sticky", b:"Extremely sticky",
+    items:[ ["a window",4], ["a post-it note",45], ["honey",85], ["a movie theater floor",93] ] },
+  { id:"smell", a:"Worst smell", b:"Best smell",
+    items:[ ["gym socks",5], ["a wet dog",22], ["fresh rain",80], ["baking cookies",96] ] },
+  { id:"drop", a:"Won't survive a drop", b:"Totally fine",
+    items:[ ["a glass vase",4], ["a phone (screen down)",15], ["a textbook",85], ["a rubber ball",97] ] },
+  { id:"trust", a:"Do not trust", b:"Trust with your life",
+    items:[ ["an 'I'm 5 min away' text",8], ["the weather forecast",32], ["a golden retriever",88], ["grandma",96] ] },
+  { id:"party", a:"Ruins the party", b:"IS the party",
+    items:[ ["tax paperwork",3], ["a mime",40], ["a karaoke machine",84], ["a bounce house",94] ] },
+  { id:"loud", a:"Silent", b:"Deafening",
+    items:[ ["a library whisper",6], ["chips in a quiet room",68], ["a cat at 3am",75], ["a toddler denied candy",95] ] },
+  { id:"comfy", a:"Torture device", b:"Pure comfort",
+    items:[ ["a middle airplane seat",8], ["a park bench",35], ["a beanbag chair",80], ["fresh bed sheets",97] ] },
+  { id:"chaos", a:"Perfectly calm", b:"Total chaos",
+    items:[ ["a bowl of oatmeal",5], ["a group project chat",78], ["a seagull near fries",88], ["a toddler with scissors",97] ] },
+  { id:"alien", a:"Impossible to explain to an alien", b:"Easy",
+    items:[ ["taxes",6], ["sarcasm",18], ["a sandwich",82], ["sleeping",92] ] },
+  { id:"round", a:"Not round", b:"Perfectly round",
+    items:[ ["a ruler",2], ["an egg",68], ["an orange",88], ["a bowling ball",97] ] },
+  { id:"wait", a:"Worth zero wait", b:"Worth any wait",
+    items:[ ["a software update",12], ["a microwave's last 3 sec",30], ["a rollercoaster",75], ["fresh fries",93] ] },
+  { id:"hot", a:"Freezing", b:"Scorching",
+    items:[ ["a penguin's feet",8], ["room-temp water",45], ["a seatbelt buckle in July",88], ["the sun",99] ] },
+  { id:"boring", a:"Instantly boring", b:"Endlessly entertaining",
+    items:[ ["watching paint dry",3], ["an airplane safety video",15], ["popping bubble wrap",80], ["a dog chasing its tail",88] ] },
+  { id:"heavy", a:"Light as air", b:"Impossibly heavy",
+    items:[ ["a feather",2], ["a wet towel",45], ["a full laundry basket",65], ["a piano",95] ] },
+  { id:"pricey", a:"Basically free", b:"Costs a fortune",
+    items:[ ["air",2], ["a gumball",12], ["movie theater snacks",70], ["a yacht",98] ] },
+  { id:"cute", a:"Not cute", b:"Unbearably cute",
+    items:[ ["a tax form",3], ["a pigeon",35], ["a baby elephant",92], ["a kitten sneezing",95] ] },
+  { id:"school", a:"Useless at school", b:"Lifesaver at school",
+    items:[ ["a kazoo",6], ["glitter",15], ["a charged phone",80], ["the friend with extra pencils",92] ] },
+  { id:"awkward", a:"Totally normal", b:"Maximum awkward",
+    items:[ ["a high five",8], ["saying 'you too' to a waiter",75], ["forgetting a name mid-sentence",85], ["waving at someone not waving at you",88] ] },
+  { id:"sleepy", a:"Wide awake", b:"Instantly asleep",
+    items:[ ["ice water to the face",2], ["a double espresso",6], ["math class after lunch",80], ["a warm blanket + rain sounds",90] ] },
+  { id:"slippery", a:"Grippy", b:"Slippery",
+    items:[ ["sandpaper",3], ["a doorknob",30], ["a banana peel",90], ["an ice rink",95] ] },
+  { id:"brave", a:"Cowardly", b:"Fearless",
+    items:[ ["hiding from the doorbell",8], ["a goldfish",18], ["a chihuahua barking at a great dane",88], ["a honey badger",96] ] },
+  { id:"messy", a:"Spotless", b:"Disaster zone",
+    items:[ ["an operating room",3], ["a freshly made bed",6], ["a teenager's bedroom",88], ["a toddler eating spaghetti",95] ] },
+  { id:"annoying", a:"Barely noticeable", b:"Infuriating",
+    items:[ ["a soft hum",12], ["a dripping faucet",70], ["slow walkers in a hallway",80], ["a mosquito at night",93] ] },
+  { id:"magic", a:"Ordinary", b:"Feels like magic",
+    items:[ ["a doorstop",4], ["static electricity",55], ["how cats always land on their feet",70], ["wifi on an airplane",85] ] },
+  { id:"menace", a:"Harmless", b:"Absolute menace",
+    items:[ ["a marshmallow",2], ["a stapler",20], ["a goose",85], ["stepping on a LEGO",90] ] },
+  { id:"ancient", a:"Brand new", b:"Ancient",
+    items:[ ["today's homework",3], ["your parents' music",60], ["dial-up internet",75], ["the pyramids",96] ] },
+  { id:"pocket", a:"Impossible to carry", b:"Fits in a pocket",
+    items:[ ["a house",2], ["a watermelon",35], ["a water bottle",75], ["a paperclip",98] ] },
+  { id:"polite", a:"Rude", b:"Extremely polite",
+    items:[ ["cutting in line",5], ["a slow nod",55], ["holding the door",85], ["a handwritten thank-you note",95] ] },
+  { id:"genius", a:"Not a single thought", b:"Genius",
+    items:[ ["a rock",2], ["a goldfish",20], ["a crow",80], ["a dolphin",88] ] },
+  { id:"breakfast", a:"Terrible breakfast", b:"Perfect breakfast",
+    items:[ ["a glass of pickle juice",5], ["leftover birthday cake",40], ["cold pizza",45], ["pancakes",92] ] },
+  { id:"power", a:"Useless superpower", b:"Unstoppable",
+    items:[ ["smelling the color blue",3], ["talking to houseplants",15], ["always finding parking",70], ["invisibility",90] ] },
+  { id:"regret", a:"No regrets", b:"Instant regret",
+    items:[ ["a nap",8], ["a second slice of cake",30], ["bangs you cut yourself",85], ["texting your crush at 2am",90] ] },
+  { id:"sound", a:"Worst sound", b:"Best sound",
+    items:[ ["styrofoam squeaking",4], ["an alarm clock",15], ["opening a soda can",80], ["ocean waves",85] ] },
+  { id:"pet", a:"Worst pet", b:"Best pet",
+    items:[ ["a tarantula",15], ["a pet rock",30], ["a goldfish",55], ["a golden retriever",95] ] },
+  { id:"invention", a:"Worst invention", b:"Best invention",
+    items:[ ["autoplaying ads",3], ["the snooze button",50], ["air conditioning",90], ["pizza delivery",93] ] },
+  { id:"forever", a:"Feels like seconds", b:"Feels like forever",
+    items:[ ["weekends",10], ["a good movie",15], ["waiting for water to boil",80], ["the last minute of class",85] ] },
+  { id:"excuse", a:"Worst excuse", b:"Bulletproof excuse",
+    items:[ ["my dog ate it",12], ["I forgot",20], ["traffic",40], ["I was in the hospital",88] ] },
+  { id:"date", a:"Nightmare first date", b:"Dream first date",
+    items:[ ["the DMV",4], ["helping them move apartments",20], ["mini golf",78], ["a sunset picnic",92] ] },
+  { id:"gift", a:"Worst gift", b:"Best gift",
+    items:[ ["a gift card to a closed store",4], ["socks... again",28], ["cold hard cash",78], ["a puppy",90] ] },
+  { id:"roommate", a:"Nightmare roommate", b:"Perfect roommate",
+    items:[ ["practices trombone at 6am",5], ["eats your leftovers",15], ["always does the dishes",85], ["pays rent early and bakes",94] ] },
+  { id:"sus", a:"Not suspicious", b:"Extremely suspicious",
+    items:[ ["a librarian",8], ["whistling casually",55], ["speed-walking away from a noise",72], ["a van labeled 'free candy'",96] ] },
+  { id:"apology", a:"Fake apology", b:"Sincere apology",
+    items:[ ["'sorry' while still doing it",4], ["'sorry you feel that way'",10], ["'my bad'",35], ["a handwritten letter",90] ] },
+  { id:"fib", a:"Innocent fib", b:"Absolute whopper",
+    items:[ ["'your haircut looks great'",22], ["'I'm on my way'",38], ["'I only ate one cookie'",48], ["'I read the terms and conditions'",85] ] },
+  { id:"villainy", a:"Villain behavior", b:"Hero behavior",
+    items:[ ["double parking",8], ["stealing the last fry",15], ["returning a lost wallet",88], ["bringing snacks to share",92] ] },
+  { id:"hotdog", a:"Definitely a sandwich", b:"Definitely NOT a sandwich",
+    items:[ ["an open-faced sandwich",30], ["a hot dog",52], ["a burrito",72], ["a quesadilla",78] ] },
+  { id:"soup", a:"Definitely soup", b:"Definitely NOT soup",
+    items:[ ["ramen",8], ["chili",28], ["cereal with milk",60], ["a smoothie",72] ] },
+  { id:"quantity", a:"Barely any", b:"A ton",
+    items:[ ["a couple",10], ["a few",25], ["several",42], ["dozens",75] ] },
+  { id:"soonness", a:"Right now", b:"Eventually",
+    items:[ ["in a sec",12], ["in a bit",32], ["soon",45], ["at some point",82] ] },
+  { id:"odds", a:"No chance", b:"Guaranteed",
+    items:[ ["slim chance",18], ["a toss-up",50], ["pretty likely",70], ["almost certain",90] ] },
+  { id:"alive", a:"Definitely alive", b:"Definitely NOT alive",
+    items:[ ["a seed",25], ["sourdough starter",35], ["a virus",58], ["fire",80] ] },
+  { id:"bignum", a:"Smaller number", b:"Bigger number",
+    items:[ ["seconds in a day",30], ["words in a novel",34], ["hairs on your head",38], ["heartbeats in a year",85] ] },
+  { id:"ago", a:"Just happened", b:"Ages ago",
+    items:[ ["the other day",12], ["a while back",40], ["back in the day",72], ["once upon a time",95] ] },
+];
+
+const QUIPS = {
+  high:  ["You ARE the crowd.","Suspiciously well-adjusted.","The people's champion.","Telepathy confirmed."],
+  mid:   ["Mostly human. Mostly.","Close enough.","The crowd squints approvingly.","Respectable. Debatable. Respectable."],
+  low:   ["Bold opinions detected.","The crowd would like a word.","You live on a different line entirely.","Delightfully unhinged."],
+};
+
+const GRADES = [
+  [90,"Certified Mind Reader 🧠"],
+  [75,"In Sync With Humanity"],
+  [60,"Mostly Human"],
+  [40,"Delightfully Weird"],
+  [0,"An Alien Doing Its Best 👽"],
+];
+
+function scoreColor(s) {
+  return "hsl(" + Math.round(Math.max(0, Math.min(100, s)) * 1.2) + ", 62%, 44%)";
+}
+
+/* ================= DAILY ================= */
+const EPOCH = Date.UTC(2026, 6, 11);
+function dateKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+function todayKey() { return dateKey(new Date()); }
+function yesterdayKey() { const d = new Date(); d.setDate(d.getDate() - 1); return dateKey(d); }
+function dailyNumber() {
+  const d = new Date();
+  const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.floor((utc - EPOCH) / 86400000) + 1;
+}
+function dailyRound() {
+  const n = dailyNumber();
+  return ROUNDS[((n * 17) % ROUNDS.length + ROUNDS.length) % ROUNDS.length];
+}
+function sqEmoji(d) { return d <= 8 ? "🟩" : d <= 18 ? "🟨" : d <= 32 ? "🟧" : "🟥"; }
+function msUntilMidnight() {
+  const now = new Date();
+  const mid = new Date(now);
+  mid.setHours(24, 0, 0, 0);
+  return mid - now;
+}
+function fmtCountdown(ms) {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.ceil((ms % 3600000) / 60000);
+  if (h > 0) return h + "h " + m + "m";
+  return m + "m";
+}
+
+/* ================= STATE ================= */
+let mode = "quick";
+let gameRounds = [], roundIdx = 0, scores = [], placed = {}, revealed = false;
+let dailySquares = "", dailyDone = null;
+let dragging = false;
+let playerName = "", playerId = "";
+let countdownTimer = null;
+
+/* ================= STORAGE ================= */
+async function getCrowd(roundId) {
+  if (store.mode === "server") {
+    try {
+      const res = await fetch("/api/crowd/" + encodeURIComponent(roundId));
+      if (res.ok) return await res.json();
+    } catch (e) {}
+  }
+  try {
+    const r = await store.get("crowd:" + roundId, true);
+    return r ? JSON.parse(r.value) : {};
+  } catch (e) { return {}; }
+}
+async function addToCrowd(roundId, placements) {
+  if (store.mode === "server") {
+    try {
+      const res = await fetch("/api/crowd/" + encodeURIComponent(roundId), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pid: playerId, placements })
+      });
+      if (res.ok) return;
+    } catch (e) {}
+  }
+  try {
+    const data = await getCrowd(roundId);
+    for (const [item, pos] of Object.entries(placements)) {
+      if (!data[item]) data[item] = { sum: 0, n: 0 };
+      data[item].sum += pos; data[item].n += 1;
+    }
+    await store.set("crowd:" + roundId, JSON.stringify(data), true);
+  } catch (e) {}
+}
+function crowdAvg(seedPos, entry) {
+  const sum = seedPos * SEED_WEIGHT + ((entry && entry.sum) || 0);
+  const n = SEED_WEIGHT + ((entry && entry.n) || 0);
+  return sum / n;
+}
+
+/* ---- leaderboard (shared, per-day) ---- */
+async function getLeaderboard(key) {
+  if (store.mode === "server") {
+    try {
+      const res = await fetch("/api/leaderboard/" + encodeURIComponent(key));
+      if (res.ok) return await res.json();
+    } catch (e) {}
+  }
+  try {
+    const r = await store.get("lb:" + key, true);
+    return r ? JSON.parse(r.value) : [];
+  } catch (e) { return []; }
+}
+async function postToLeaderboard(score, squares) {
+  if (store.mode === "server") {
+    try {
+      const res = await fetch("/api/leaderboard/" + encodeURIComponent(todayKey()), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pid: playerId, name: playerName, score, squares, dailyNumber: dailyNumber() })
+      });
+      if (res.ok) return;
+    } catch (e) {}
+  }
+  try {
+    const key = todayKey();
+    const board = await getLeaderboard(key);
+    if (!board.some(e => e.pid === playerId)) {
+      board.push({ pid: playerId, n: playerName, s: score, q: squares });
+      board.sort((a, b) => b.s - a.s);
+      await store.set("lb:" + key, JSON.stringify(board.slice(0, 50)), true);
+    }
+  } catch (e) {}
+}
+
+/* ---- identity ---- */
+async function loadIdentity() {
+  try {
+    const r = await store.get("pref:pid");
+    if (r) playerId = r.value;
+  } catch (e) {}
+  if (!playerId) {
+    playerId = "p" + Math.random().toString(36).slice(2, 10);
+    try { await store.set("pref:pid", playerId); } catch (e) {}
+  }
+  try {
+    const r = await store.get("pref:name");
+    if (r) playerName = r.value;
+  } catch (e) {}
+}
+function cleanName(s) {
+  return s.replace(/[<>&"']/g, "").trim().slice(0, 14);
+}
+
+/* ---- personal stats ---- */
+const EMPTY_STATS = { g:0, r:0, s:0, hi:null, lo:null, d:0, streak:0, lastDaily:"" };
+let statsCache = null;
+async function getStats() {
+  if (statsCache) return statsCache;
+  try {
+    const r = await store.get("stats");
+    statsCache = r ? Object.assign({}, EMPTY_STATS, JSON.parse(r.value)) : Object.assign({}, EMPTY_STATS);
+  } catch (e) { statsCache = Object.assign({}, EMPTY_STATS); }
+  return statsCache;
+}
+async function saveStats() {
+  if (!statsCache) return;
+  try { await store.set("stats", JSON.stringify(statsCache)); } catch (e) {}
+}
+async function recordRound(axis, score) {
+  const st = await getStats();
+  st.r += 1; st.s += score;
+  if (!st.hi || score > st.hi.sc) st.hi = { ax: axis, sc: score };
+  if (!st.lo || score < st.lo.sc) st.lo = { ax: axis, sc: score };
+  await saveStats();
+}
+async function recordGame() {
+  const st = await getStats();
+  st.g += 1;
+  await saveStats();
+}
+async function recordDaily() {
+  const st = await getStats();
+  st.d += 1;
+  st.streak = (st.lastDaily === yesterdayKey()) ? st.streak + 1 : 1;
+  st.lastDaily = todayKey();
+  await saveStats();
+}
+function currentStreak(st) {
+  if (st.lastDaily === todayKey() || st.lastDaily === yesterdayKey()) return st.streak;
+  return 0;
+}
+
+/* ================= HELPERS ================= */
+const $ = (id) => document.getElementById(id);
+function show(id) {
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+function setSub(text) {
+  const el = $("sub");
+  if (el.textContent === text) return;
+  el.style.opacity = 0;
+  setTimeout(() => { el.textContent = text; el.style.opacity = 1; }, 140);
+}
+function countUp(el, target, ms, popAfter) {
+  ms = ms || 700;
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - start) / ms);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(target * eased);
+    if (t < 1) requestAnimationFrame(tick);
+    else if (popAfter) { el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop"); }
+  }
+  requestAnimationFrame(tick);
+}
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+/* ================= MODAL ================= */
+function openModal(html) {
+  $("modalBox").innerHTML = html;
+  $("overlay").classList.add("on");
+}
+function closeModal() {
+  $("overlay").classList.remove("on");
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+$("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) closeModal(); });
+
+function showLockModal() {
+  sfx.click();
+  openModal(
+    '<div class="big">🔒</div>' +
+    '<h3>Daily complete!</h3>' +
+    '<p>You scored <b>' + (dailyDone ? dailyDone.score : 0) + '/100</b> today. A new line unlocks at midnight.</p>' +
+    '<div class="count" id="lockCount">' + fmtCountdown(msUntilMidnight()) + '</div>' +
+    '<button class="btn" id="lockOk">See you then</button>'
+  );
+  $("lockOk").addEventListener("click", () => { sfx.click(); closeModal(); });
+  countdownTimer = setInterval(() => {
+    const el = $("lockCount");
+    if (el) el.textContent = fmtCountdown(msUntilMidnight());
+  }, 15000);
+}
+
+function showNameModal(onDone) {
+  openModal(
+    '<div class="big">✍️</div>' +
+    '<h3>Pick a name</h3>' +
+    '<p>Shown on today\'s leaderboard next to your score' + (store.mode === "server" ? " (public)." : " (this device).") + '</p>' +
+    '<input id="nameInput" maxlength="14" placeholder="e.g. LineRunner" autocomplete="off" />' +
+    '<button class="btn" id="nameOk">Let\'s go</button>'
+  );
+  const input = $("nameInput");
+  if (playerName) input.value = playerName;
+  setTimeout(() => input.focus(), 100);
+  const go = async () => {
+    let n = cleanName(input.value);
+    if (!n) n = "Player" + playerId.slice(1, 5).toUpperCase();
+    playerName = n;
+    try { await store.set("pref:name", n); } catch (e) {}
+    sfx.click();
+    closeModal();
+    onDone();
+  };
+  $("nameOk").addEventListener("click", go);
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+}
+
+/* ================= GAME FLOW ================= */
+function startQuick() {
+  sfx.click();
+  mode = "quick";
+  gameRounds = [...ROUNDS].sort(() => Math.random() - .5).slice(0, 5);
+  roundIdx = 0; scores = [];
+  loadRound();
+  show("round");
+}
+function startDaily() {
+  sfx.click();
+  if (dailyDone) { showLockModal(); return; }
+  const begin = () => {
+    mode = "daily";
+    gameRounds = [dailyRound()];
+    roundIdx = 0; scores = []; dailySquares = "";
+    loadRound();
+    show("round");
+  };
+  if (!playerName) showNameModal(begin);
+  else begin();
+}
+
+function renderProgress() {
+  if (mode === "daily") { $("progress").innerHTML = ""; return; }
+  $("progress").innerHTML = gameRounds
+    .map((_, i) => {
+      if (i < roundIdx || (i === roundIdx && scores[i] !== undefined))
+        return '<div class="pdot" style="background:' + scoreColor(scores[i]) + '"></div>';
+      if (i === roundIdx) return '<div class="pdot now"></div>';
+      return '<div class="pdot"></div>';
+    })
+    .join("");
+}
+
+function loadRound() {
+  const r = gameRounds[roundIdx];
+  placed = {}; revealed = false;
+
+  $("modeLabel").textContent = mode === "daily" ? "Daily #" + dailyNumber() : "";
+  renderProgress();
+  $("axisLabel").innerHTML =
+    '<span class="a">' + esc(r.a) + '</span><span class="arrow">→</span><span class="b">' + esc(r.b) + '</span>';
+  $("sub").style.opacity = 1;
+  $("sub").textContent = "place each item on the line — drag again to adjust";
+  $("verdict").innerHTML = "";
+  $("submitBtn").style.display = "";
+  $("submitBtn").disabled = true;
+  $("submitBtn").classList.remove("appear");
+  $("nextBtn").style.display = "none";
+
+  const stage = $("stage");
+  stage.classList.remove("reveal");
+  stage.querySelectorAll(".pin").forEach(el => el.remove());
+
+  const tray = $("tray");
+  tray.innerHTML = "";
+  const items = [...r.items].sort(() => Math.random() - .5);
+  for (const [name] of items) tray.appendChild(makeChip(name));
+}
+
+function makeChip(name) {
+  const chip = document.createElement("div");
+  chip.className = "chip";
+  chip.textContent = name;
+  chip.dataset.item = name;
+  chip.addEventListener("pointerdown", (e) => startDrag(name, e, chip));
+  return chip;
+}
+
+/* ================= DRAG ================= */
+function startDrag(name, e, sourceEl) {
+  if (revealed || dragging || (e.pointerType === "mouse" && e.button !== 0)) return;
+  e.preventDefault();
+  dragging = true;
+  sfx.pick();
+
+  if (placed[name] !== undefined) { delete placed[name]; renderPins(); }
+  if (sourceEl) sourceEl.remove();
+
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+  ghost.textContent = name;
+  document.body.appendChild(ghost);
+  const gw = ghost.offsetWidth / 2, gh = ghost.offsetHeight / 2;
+
+  const track = $("track");
+  const guide = $("guide");
+  let px = e.clientX, py = e.clientY, rafPending = false;
+
+  function overTrack(x, y) {
+    const rect = track.getBoundingClientRect();
+    return {
+      rect,
+      over: x >= rect.left - 12 && x <= rect.right + 12 &&
+            y >= rect.top - 130 && y <= rect.bottom + 60
+    };
+  }
+  function paint() {
+    rafPending = false;
+    ghost.style.transform = "translate3d(" + (px - gw) + "px," + (py - gh) + "px,0)";
+    const { rect, over } = overTrack(px, py);
+    guide.style.opacity = over ? .35 : 0;
+    if (over) {
+      const pct = Math.min(100, Math.max(0, ((px - rect.left) / rect.width) * 100));
+      guide.style.left = pct + "%";
+    }
+  }
+  function queue() { if (!rafPending) { rafPending = true; requestAnimationFrame(paint); } }
+  paint();
+
+  function onMove(ev) { px = ev.clientX; py = ev.clientY; queue(); }
+  function finish(ev, cancelled) {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onCancel);
+    ghost.remove();
+    guide.style.opacity = 0;
+    dragging = false;
+
+    const x = ev ? ev.clientX : px, y = ev ? ev.clientY : py;
+    const { rect, over } = overTrack(x, y);
+    if (!cancelled && over) {
+      const pct = Math.min(100, Math.max(0, ((x - rect.left) / rect.width) * 100));
+      placed[name] = pct;
+      renderPins(name);
+      sfx.drop(pct);
+      buzz(12);
+    } else {
+      $("tray").appendChild(makeChip(name));
+      if (!cancelled) sfx.tray();
+    }
+    updateSubmit();
+  }
+  function onUp(ev) { finish(ev, false); }
+  function onCancel() { finish(null, true); }
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onCancel);
+}
+
+/* ================= PINS ================= */
+function renderPins(popName) {
+  const stage = $("stage");
+  const trackTop = $("track").offsetTop;
+
+  const entries = Object.entries(placed).sort((a, b) => a[1] - b[1]);
+  const rowEnds = [];
+  const layout = {};
+  for (const [name, pct] of entries) {
+    let row = 0;
+    while (rowEnds[row] !== undefined && pct - rowEnds[row] < 20) row++;
+    row = Math.min(row, 2);
+    rowEnds[row] = pct;
+    layout[name] = { pct, row };
+  }
+
+  stage.querySelectorAll(".pin.mine").forEach(p => {
+    if (!(p.dataset.item in placed)) p.remove();
+  });
+
+  for (const [name, lay] of Object.entries(layout)) {
+    let pin = stage.querySelector('.pin.mine[data-item="' + CSS.escape(name) + '"]');
+    if (!pin) {
+      pin = document.createElement("div");
+      pin.className = "pin mine";
+      pin.dataset.item = name;
+      pin.innerHTML = '<div class="lbl">' + esc(name) + '</div><div class="stem"></div><div class="dot"></div>';
+      pin.addEventListener("pointerdown", (e) => startDrag(name, e, pin));
+      stage.appendChild(pin);
+    }
+    const height = 44 + lay.row * 38;
+    pin.style.left = lay.pct + "%";
+    pin.style.top = (trackTop + 7 - height) + "px";
+    pin.style.height = height + "px";
+    if (name === popName) {
+      pin.classList.remove("pop"); void pin.offsetWidth; pin.classList.add("pop");
+    }
+  }
+}
+
+function updateSubmit() {
+  const r = gameRounds[roundIdx];
+  const done = Object.keys(placed).length === r.items.length;
+  const btn = $("submitBtn");
+  if (done && btn.disabled) { btn.disabled = false; btn.classList.add("appear"); }
+  else if (!done) { btn.disabled = true; btn.classList.remove("appear"); }
+  setSub(done ? "happy with that? lock it in." : "drag each item onto the bar — drag again to adjust");
+}
+
+/* ================= REVEAL ================= */
+async function submitRound() {
+  if (revealed) return;
+  revealed = true;
+  sfx.lock();
+  $("submitBtn").style.display = "none";
+  setSub("");
+
+  const r = gameRounds[roundIdx];
+  const crowd = await getCrowd(r.id);
+  const stage = $("stage");
+  stage.classList.add("reveal");
+  setTimeout(() => renderPins(), 360);
+
+  let totalDist = 0, worst = { d: -1 };
+  const dists = [];
+  const crowdData = r.items.map(([name, seed]) => {
+    const avg = crowdAvg(seed, crowd[name]);
+    const d = Math.abs(avg - placed[name]);
+    totalDist += d;
+    dists.push(d);
+    if (d > worst.d) worst = { d, name, avg, mine: placed[name] };
+    return { name, avg };
+  });
+  if (mode === "daily") dailySquares = dists.map(sqEmoji).join("");
+
+  const trackTop = 130;
+  const sorted = [...crowdData].sort((a, b) => a.avg - b.avg);
+  const rowEnds = [];
+  sorted.forEach((c, i) => {
+    let row = 0;
+    while (rowEnds[row] !== undefined && c.avg - rowEnds[row] < 20) row++;
+    row = Math.min(row, 2);
+    rowEnds[row] = c.avg;
+
+    const pin = document.createElement("div");
+    pin.className = "pin crowd";
+    const height = 40 + row * 34;
+    pin.style.left = c.avg + "%";
+    pin.style.top = (trackTop + 7) + "px";
+    pin.style.height = height + "px";
+    const short = c.name.length > 18 ? c.name.slice(0, 17) + "…" : c.name;
+    pin.innerHTML = '<div class="dot"></div><div class="stem"></div><div class="lbl">' + esc(short) + '</div>';
+    stage.appendChild(pin);
+    setTimeout(() => { pin.classList.add("in"); sfx.crowdPin(i); }, 420 + i * 150);
+  });
+
+  const avgDist = totalDist / r.items.length;
+  const score = Math.round(Math.max(0, 100 - avgDist * 1.6));
+  scores.push(score);
+
+  const bucket = score >= 80 ? "high" : score >= 55 ? "mid" : "low";
+  let quip = QUIPS[bucket][Math.floor(Math.random() * QUIPS[bucket].length)];
+  if (bucket !== "high" && worst.d > 25) {
+    const dir = worst.avg > worst.mine ? r.b.toLowerCase() : r.a.toLowerCase();
+    quip += ' The crowd thinks "' + esc(worst.name) + '" is way more ' + esc(dir) + ' than you do.';
+  }
+
+  $("verdict").innerHTML =
+    '<div><span class="score-big" id="scoreNum" style="color:' + scoreColor(score) + '">0</span></div>' +
+    '<div class="quip in">' + quip + '</div>' +
+    '<div class="legend in"><span class="you"></span> you &nbsp;&nbsp; <span class="them"></span> the crowd</div>';
+
+  const revealDone = 420 + sorted.length * 150;
+  setTimeout(() => {
+    countUp($("scoreNum"), score, 800, true);
+    if (bucket === "high") sfx.scoreHigh();
+    else if (bucket === "mid") sfx.scoreMid();
+    else sfx.scoreLow();
+    if (score >= 90) { confetti(45); buzz([15, 40, 15]); }
+    renderProgress();
+  }, revealDone);
+
+  const nextBtn = $("nextBtn");
+  nextBtn.textContent = roundIdx + 1 < gameRounds.length ? "Next" : "Results";
+  nextBtn.style.display = "";
+  nextBtn.classList.remove("appear"); void nextBtn.offsetWidth; nextBtn.classList.add("appear");
+
+  addToCrowd(r.id, placed);
+  recordRound(r.a + " → " + r.b, score);
+
+  if (mode === "daily" && !dailyDone) {
+    dailyDone = { score, squares: dailySquares, n: dailyNumber() };
+    try { await store.set("daily:" + todayKey(), JSON.stringify(dailyDone)); } catch (e) {}
+    await recordDaily();
+    await postToLeaderboard(score, dailySquares);
+    refreshDailyTag();
+  }
+}
+
+function nextRound() {
+  sfx.click();
+  roundIdx++;
+  if (roundIdx < gameRounds.length) loadRound();
+  else showFinal();
+}
+
+/* ================= FINAL ================= */
+async function showFinal() {
+  const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+  show("final");
+  recordGame();
+
+  const scoreEl = $("finalScore");
+  scoreEl.style.color = scoreColor(avg);
+  countUp(scoreEl, avg, 1000, true);
+  $("finalGrade").textContent = GRADES.find(([min]) => avg >= min)[1];
+  $("miniStats").innerHTML = "";
+  $("leaderboard").innerHTML = "";
+
+  if (mode === "daily") {
+    $("finalSub").textContent = "Daily #" + dailyNumber() + " — new line at midnight";
+    $("finalBars").innerHTML = "";
+    $("squares").textContent = (dailyDone && dailyDone.squares) || dailySquares;
+    $("shareBtn").style.display = "";
+    $("againBtn").style.display = "none";
+
+    const st = await getStats();
+    const streak = currentStreak(st);
+    const avgSync = st.r ? Math.round(st.s / st.r) : 0;
+    $("miniStats").innerHTML =
+      (streak > 0 ? "🔥 " + streak + "-day streak &nbsp;·&nbsp; " : "") +
+      '<span style="color:' + scoreColor(avgSync) + '; font-weight:700;">' + avgSync + '</span> avg sync' +
+      " &nbsp;·&nbsp; " + st.d + (st.d === 1 ? " daily" : " dailies");
+
+    renderLeaderboard();
+  } else {
+    $("finalSub").textContent = "how each round went";
+    $("squares").textContent = "";
+    $("shareBtn").style.display = "none";
+    $("againBtn").style.display = "";
+    $("finalBars").innerHTML = scores
+      .map((s, i) =>
+        '<div class="fbar" style="height:' + Math.max(8, s * .7) + 'px; background:' + scoreColor(s) +
+        '; animation-delay:' + (.15 + i * .1) + 's" title="Round ' + (i + 1) + ': ' + s + '"></div>')
+      .join("");
+  }
+
+  if (avg >= 75) { setTimeout(() => { sfx.fanfare(); confetti(70); }, 300); }
+  else if (avg >= 40) { setTimeout(() => sfx.scoreMid(), 300); }
+  else { setTimeout(() => sfx.womp(), 300); }
+}
+
+async function renderLeaderboard() {
+  const board = await getLeaderboard(todayKey());
+  const el = $("leaderboard");
+  if (!board.length) {
+    el.innerHTML = '<h3>Today\'s leaderboard</h3><div class="lb-note">You\'re the first to finish today — top of the board by default 👑</div>';
+    return;
+  }
+  const top = board.slice(0, 10);
+  let html = '<h3>Today\'s leaderboard</h3>';
+  top.forEach((e2, i) => {
+    const me = e2.pid === playerId ? " me" : "";
+    const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + ".";
+    html += '<div class="lb-row' + me + '" style="animation-delay:' + (i * .05) + 's">' +
+      '<span class="rank">' + medal + '</span>' +
+      '<span class="nm">' + esc(e2.n) + '</span>' +
+      '<span class="sq">' + esc(e2.q) + '</span>' +
+      '<span class="sc" style="color:' + scoreColor(e2.s) + '">' + e2.s + '</span>' +
+      '</div>';
+  });
+  const myRank = board.findIndex(e2 => e2.pid === playerId);
+  if (myRank >= 10) {
+    const mine = board[myRank];
+    html += '<div class="lb-row me"><span class="rank">' + (myRank + 1) + '.</span>' +
+      '<span class="nm">' + esc(mine.n) + '</span>' +
+      '<span class="sq">' + esc(mine.q) + '</span>' +
+      '<span class="sc" style="color:' + scoreColor(mine.s) + '">' + mine.s + '</span></div>';
+  }
+  html += '<div class="lb-note">' + board.length + ' player' + (board.length === 1 ? "" : "s") + ' so far today · names are public</div>';
+  el.innerHTML = html;
+}
+
+async function shareDaily() {
+  const r = dailyRound();
+  const score = dailyDone ? dailyDone.score : (scores[scores.length - 1] || 0);
+  const sq = (dailyDone && dailyDone.squares) || dailySquares || "";
+  const st = await getStats();
+  const streak = currentStreak(st);
+  const board = await getLeaderboard(todayKey());
+  const rank = board.findIndex(e2 => e2.pid === playerId);
+  const text = "Crowdline — Daily #" + dailyNumber() + "\n" +
+               r.a + " → " + r.b + "\n" +
+               sq + "  " + score + "/100" +
+               (rank >= 0 ? "  (#" + (rank + 1) + " today)" : "") +
+               (streak > 1 ? "\n🔥 " + streak + "-day streak" : "");
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand("copy"); ta.remove();
+      ok = true;
+    } catch (e2) {}
+  }
+  const btn = $("shareBtn");
+  btn.textContent = ok ? "Copied!" : "Couldn't copy";
+  sfx.click();
+  setTimeout(() => { btn.textContent = "Share"; }, 1600);
+}
+
+/* ================= STATS SCREEN ================= */
+async function showStats() {
+  sfx.click();
+  const st = await getStats();
+  const body = $("statsBody");
+  if (st.r === 0) {
+    body.innerHTML = '<p class="stat-empty">No games yet — go place some opinions.</p>';
+  } else {
+    const avg = Math.round(st.s / st.r);
+    const streak = currentStreak(st);
+    body.innerHTML =
+      '<div class="stat-grid">' +
+        '<div class="stat-cell"><div class="v">' + st.g + '</div><div class="k">games</div></div>' +
+        '<div class="stat-cell"><div class="v" style="color:' + scoreColor(avg) + '">' + avg + '</div><div class="k">avg sync</div></div>' +
+        '<div class="stat-cell"><div class="v">' + (streak > 0 ? "🔥" + streak : "—") + '</div><div class="k">daily streak</div></div>' +
+      '</div>' +
+      '<div class="stat-rows">' +
+        '<div class="stat-row"><span class="k">Rounds played</span><span class="v">' + st.r + '</span></div>' +
+        '<div class="stat-row"><span class="k">Dailies completed</span><span class="v">' + st.d + '</span></div>' +
+        (st.hi ? '<div class="stat-row"><span class="k">Most in-sync 🧠<br/>' + esc(st.hi.ax) + '</span><span class="v" style="color:' + scoreColor(st.hi.sc) + '">' + st.hi.sc + '</span></div>' : '') +
+        (st.lo ? '<div class="stat-row"><span class="k">Boldest take 👽<br/>' + esc(st.lo.ax) + '</span><span class="v" style="color:' + scoreColor(st.lo.sc) + '">' + st.lo.sc + '</span></div>' : '') +
+      '</div>';
+  }
+  show("stats");
+}
+
+/* ================= DAILY TAG ================= */
+async function refreshDailyTag() {
+  const tag = $("dailyTag");
+  try {
+    const r = await store.get("daily:" + todayKey());
+    if (r) {
+      dailyDone = JSON.parse(r.value);
+      tag.textContent = "🔒 done today — " + dailyDone.score + "/100 · new one in " + fmtCountdown(msUntilMidnight());
+      $("dailyBtn").textContent = "Daily ✓";
+      return;
+    }
+  } catch (e) {}
+  dailyDone = null;
+  $("dailyBtn").textContent = "Today's Line";
+  tag.textContent = "Daily #" + dailyNumber() + " — same line for everyone";
+}
+
+/* ================= WIRING ================= */
+$("startBtn").addEventListener("click", startQuick);
+$("dailyBtn").addEventListener("click", startDaily);
+$("submitBtn").addEventListener("click", submitRound);
+$("nextBtn").addEventListener("click", nextRound);
+$("againBtn").addEventListener("click", startQuick);
+$("homeBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
+$("shareBtn").addEventListener("click", shareDaily);
+$("statsBtn").addEventListener("click", showStats);
+$("statsBackBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
+$("soundBtn").addEventListener("click", toggleMute);
+document.addEventListener("pointerdown", () => { try { ac(); } catch (e) {} }, { once: true });
+loadMute();
+loadIdentity().then(refreshDailyTag);
+setInterval(refreshDailyTag, 60000);
+</script>
+</body>
+</html>

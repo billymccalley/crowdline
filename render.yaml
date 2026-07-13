@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: crowdline
+    runtime: python
+    plan: starter
+    buildCommand: python -m py_compile app.py
+    startCommand: python app.py
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    disk:
+      name: crowdline-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: DATABASE_PATH
+        value: /var/data/crowdline.sqlite3
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: WRITE_LIMIT_PER_MINUTE
+        value: "45"
