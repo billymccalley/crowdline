@@ -25,6 +25,26 @@ WRITE_LIMIT_PER_MINUTE = int(os.environ.get("WRITE_LIMIT_PER_MINUTE", "45"))
 ID_RE = re.compile(r"^[a-zA-Z0-9:_-]+$")
 DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 LOGIN_RE = re.compile(r"^[a-zA-Z0-9_ -]+$")
+ANALYTICS_EVENTS = {
+    "daily_start",
+    "daily_complete",
+    "practice_start",
+    "signup",
+    "share_copied",
+}
+ADMIN_NAMES = {"billy"}
+BLOCKED_NAME_PARTS = {
+    "fuck",
+    "shit",
+    "bitch",
+    "cunt",
+    "nigger",
+    "faggot",
+    "slut",
+    "whore",
+    "kike",
+    "retard",
+}
 DB_LOCK = threading.RLock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
@@ -96,6 +116,23 @@ def init_db():
               PRIMARY KEY (day_key, player_id)
             );
 
+            CREATE TABLE IF NOT EXISTS analytics_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              event TEXT NOT NULL,
+              day_key TEXT NOT NULL,
+              user_id TEXT NOT NULL DEFAULT '',
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS reports (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              reporter_id TEXT NOT NULL DEFAULT '',
+              target_type TEXT NOT NULL,
+              target_value TEXT NOT NULL,
+              reason TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_crowd_votes_round
               ON crowd_votes (round_id);
 
@@ -104,6 +141,9 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_sessions_user
               ON sessions (user_id);
+
+            CREATE INDEX IF NOT EXISTS idx_analytics_events_day
+              ON analytics_events (day_key, event);
             """
         )
         DB.commit()
@@ -129,9 +169,14 @@ def clean_player_name(value):
     return text.strip()[:14] or "Player"
 
 
+def is_blocked_name(value):
+    compact = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    return any(part in compact for part in BLOCKED_NAME_PARTS)
+
+
 def clean_login_name(value):
     text = clean_player_name(value)
-    if len(text) < 3 or not LOGIN_RE.match(text):
+    if len(text) < 3 or not LOGIN_RE.match(text) or is_blocked_name(text):
         return ""
     return text
 
@@ -193,6 +238,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not self.allowed_by_rate_limit(parsed.path):
                     return
                 self.handle_api(parsed.path)
+            elif parsed.path == "/leaderboard":
+                self.serve_leaderboard_page()
             else:
                 self.serve_static(parsed.path)
         except json.JSONDecodeError:
@@ -250,6 +297,14 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_leaderboard(parts[2])
             return
 
+        if len(parts) >= 2 and parts[1] == "analytics":
+            self.handle_analytics(parts)
+            return
+
+        if len(parts) == 2 and parts[1] == "report":
+            self.handle_report()
+            return
+
         self.send_error_json(404, "Not found")
 
     def bearer_token(self):
@@ -264,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
         row = DB.execute(
             """
-            SELECT users.id, users.display_name
+            SELECT users.id, users.display_name, users.login_name
             FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ?
@@ -277,8 +332,24 @@ class Handler(BaseHTTPRequestHandler):
                 (now_iso(), hash_token(token)),
             )
             DB.commit()
-            return {"pid": row["id"], "name": row["display_name"]}
+            return {
+                "pid": row["id"],
+                "name": row["display_name"],
+                "isAdmin": row["login_name"] in ADMIN_NAMES,
+            }
         return None
+
+    def track_event(self, event, day_key="", user_id=""):
+        if event not in ANALYTICS_EVENTS:
+            return
+        day_key = clean_day_key(day_key) or time.strftime("%Y-%m-%d", time.localtime())
+        DB.execute(
+            """
+            INSERT INTO analytics_events (event, day_key, user_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (event, day_key, user_id or "", now_iso()),
+        )
 
     def create_session(self, user_id):
         token = secrets.token_urlsafe(32)
@@ -332,8 +403,9 @@ class Handler(BaseHTTPRequestHandler):
                         (user_id, login_name, name, salt, hashed, now_iso()),
                     )
                     token = self.create_session(user_id)
+                    self.track_event("signup", body.get("dayKey"), user_id)
                     DB.commit()
-                    self.send_json(200, {"token": token, "pid": user_id, "name": name})
+                    self.send_json(200, {"token": token, "pid": user_id, "name": name, "isAdmin": login_name in ADMIN_NAMES})
                     return
 
                 row = DB.execute(
@@ -355,7 +427,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 token = self.create_session(row["id"])
                 DB.commit()
-                self.send_json(200, {"token": token, "pid": row["id"], "name": row["display_name"]})
+                self.send_json(200, {"token": token, "pid": row["id"], "name": row["display_name"], "isAdmin": login_name in ADMIN_NAMES})
                 return
 
             if self.command == "POST" and action == "logout":
@@ -367,6 +439,77 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         self.send_error_json(404, "Not found")
+
+    def handle_analytics(self, parts):
+        with DB_LOCK:
+            if self.command == "POST" and len(parts) == 2:
+                body = self.read_json()
+                event = str(body.get("event") or "")
+                if event not in ANALYTICS_EVENTS:
+                    self.send_error_json(400, "Invalid analytics event")
+                    return
+                user = self.auth_user()
+                self.track_event(event, body.get("dayKey"), user["pid"] if user else "")
+                DB.commit()
+                self.send_json(200, {"ok": True})
+                return
+
+            if self.command == "GET" and len(parts) == 3 and parts[2] == "summary":
+                user = self.auth_user()
+                if not user or not user.get("isAdmin"):
+                    self.send_error_json(403, "Analytics are private")
+                    return
+
+                rows = DB.execute(
+                    """
+                    SELECT day_key, event, COUNT(*) AS count
+                    FROM analytics_events
+                    GROUP BY day_key, event
+                    ORDER BY day_key DESC, event ASC
+                    LIMIT 120
+                    """
+                ).fetchall()
+                totals = DB.execute(
+                    """
+                    SELECT event, COUNT(*) AS count
+                    FROM analytics_events
+                    GROUP BY event
+                    ORDER BY event ASC
+                    """
+                ).fetchall()
+                self.send_json(200, {
+                    "totals": {row["event"]: row["count"] for row in totals},
+                    "days": [
+                        {"day": row["day_key"], "event": row["event"], "count": row["count"]}
+                        for row in rows
+                    ],
+                })
+                return
+
+        self.send_error_json(404, "Not found")
+
+    def handle_report(self):
+        if self.command != "POST":
+            self.send_error_json(405, "Method not allowed")
+            return
+        body = self.read_json()
+        target_type = clean_id(body.get("type"), 30)
+        target_value = str(body.get("value") or "").strip()[:120]
+        reason = str(body.get("reason") or "reported").strip()[:200]
+        if not target_type or not target_value:
+            self.send_error_json(400, "Invalid report")
+            return
+        with DB_LOCK:
+            user = self.auth_user()
+            DB.execute(
+                """
+                INSERT INTO reports (reporter_id, target_type, target_value, reason, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (user["pid"] if user else "", target_type, target_value, reason, now_iso()),
+            )
+            DB.commit()
+        self.send_json(200, {"ok": True})
 
     def handle_store(self, parts):
         scope = parts[2]
@@ -557,6 +700,55 @@ class Handler(BaseHTTPRequestHandler):
             {"pid": row["player_id"], "n": row["name"], "s": row["score"], "q": row["squares"]}
             for row in rows
         ]
+
+    def serve_leaderboard_page(self):
+        html = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crowdline Leaderboard</title>
+<style>
+body{margin:0;background:#f4f6f5;color:#26323a;font:16px/1.5 "Trebuchet MS","Segoe UI",sans-serif;display:flex;justify-content:center;padding:34px 16px}
+main{width:min(520px,100%)}
+a{color:#37a578;font-weight:700;text-decoration:none}
+h1{font-size:38px;line-height:1;margin:0 0 6px;letter-spacing:-1px}
+.sub{color:#93a0aa;margin-bottom:22px}
+.row{display:grid;grid-template-columns:44px 1fr auto 42px;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:10px 14px;margin-bottom:8px;box-shadow:0 2px 8px rgba(38,50,58,.08)}
+.rank{font-weight:700;color:#93a0aa}.name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sq{font-size:13px}.score{font-weight:700;text-align:right}
+.empty{background:#fff;border-radius:12px;padding:18px;color:#93a0aa;text-align:center}
+</style>
+</head>
+<body>
+<main>
+<a href="/">← Play Crowdline</a>
+<h1>Today's leaderboard</h1>
+<div class="sub" id="sub"></div>
+<div id="board" class="empty">Loading...</div>
+</main>
+<script>
+function dateKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+function color(s){return "hsl("+Math.round(Math.max(0,Math.min(100,s))*1.2)+",62%,44%)"}
+async function load(){
+  const key=dateKey(new Date());
+  document.getElementById("sub").textContent=key;
+  const board=await fetch("/api/leaderboard/"+encodeURIComponent(key)).then(r=>r.json()).catch(()=>[]);
+  const el=document.getElementById("board");
+  if(!board.length){el.className="empty";el.textContent="No finishes yet today.";return}
+  el.className="";
+  el.innerHTML=board.slice(0,50).map((e,i)=>'<div class="row"><span class="rank">'+(i+1)+'.</span><span class="name">'+esc(e.n)+'</span><span class="sq">'+esc(e.q)+'</span><span class="score" style="color:'+color(e.s)+'">'+e.s+'</span></div>').join("");
+}
+load();
+</script>
+</body>
+</html>"""
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def serve_static(self, raw_path):
         request_path = unquote(raw_path)

@@ -259,6 +259,17 @@
 
   .mini-stats { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
   .mini-stats:empty { margin-bottom: 0; }
+  .reward-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px; max-width: 420px; margin: 0 auto 18px;
+  }
+  .reward-cell {
+    background: #fff; border-radius: 12px; padding: 10px 12px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.08);
+    text-align: left;
+  }
+  .reward-cell .k { display:block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  .reward-cell .v { display:block; font-weight: 700; font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
 
   /* leaderboard */
   .lb { max-width: 380px; margin: 0 auto 22px; text-align: left; }
@@ -276,6 +287,11 @@
   .lb-row .nm { font-weight: 700; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lb-row .sq { font-size: 12px; letter-spacing: 1px; }
   .lb-row .sc { font-weight: 700; font-size: 15px; width: 34px; text-align: right; }
+  .report-btn {
+    border: none; background: transparent; color: var(--muted);
+    cursor: pointer; font-size: 13px; width: 24px; height: 24px; border-radius: 50%;
+  }
+  .report-btn:hover { background: #f4f6f5; color: var(--ink); }
   .lb-note { text-align: center; font-size: 11px; color: var(--muted); margin-top: 6px; }
 
   .final-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
@@ -332,6 +348,15 @@
     transition: border-color .15s;
   }
   .modal input:focus { border-color: var(--accent); }
+  .archive-list, .analytics-list { display: grid; gap: 8px; margin-bottom: 12px; }
+  .archive-item, .analytics-row {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    background: #f4f6f5; border: none; border-radius: 12px; padding: 10px 12px;
+    color: var(--ink); font: 700 13px "Trebuchet MS", sans-serif; text-align: left;
+  }
+  .archive-item { cursor: pointer; }
+  .archive-item:hover { filter: brightness(.98); }
+  .analytics-row span:last-child { color: var(--accent); }
   .auth-error { min-height: 18px; margin: -4px 0 12px; color: #c44b4b; font-size: 12px; font-weight: 700; }
   .auth-note {
     background: #f4f6f5; border-radius: 12px; padding: 10px 12px;
@@ -401,7 +426,10 @@
         <div class="daily-tag" id="dailyTag"></div>
       </div>
       <button class="btn secondary" id="startBtn">Practice — 5 rounds</button>
+      <button class="btn secondary" id="archiveBtn">Archive</button>
       <button class="stats-link" id="statsBtn">📊 Stats</button>
+      <button class="stats-link" id="leaderboardBtn">Today's Leaderboard</button>
+      <button class="stats-link" id="analyticsBtn" style="display:none;">Analytics</button>
       <div class="account-line">
         <span id="authStatus">Playing as guest</span>
         <button class="stats-link" id="authBtn">Sign in</button>
@@ -563,6 +591,9 @@ function tone(freq, dur, type, gain, delay, glideTo) {
 }
 const sfx = {
   click:  () => tone(700, .05, "triangle", .07),
+  menu:   () => { tone(520, .055, "triangle", .055); tone(780, .07, "sine", .045, .045); },
+  soft:   () => { tone(460, .06, "sine", .045); tone(610, .08, "triangle", .04, .05); },
+  open:   () => { tone(392, .06, "triangle", .05); tone(523, .09, "triangle", .05, .045); },
   pick:   () => tone(520, .06, "triangle", .09),
   drop:   (pct) => { const f = 280 + pct * 4; tone(f, .16, "sine", .2); tone(f * 2, .1, "sine", .05); },
   tray:   () => tone(200, .14, "sine", .12, 0, 130),
@@ -819,6 +850,14 @@ const QUIPS = {
   low:   ["Bold opinions detected.","The crowd would like a word.","You live on a different line entirely.","Delightfully unhinged."],
 };
 
+const DAILY_POOL = {
+  funny: ["pizza_topping","superhero_name","party","hotdog","soup","pet","gift","breakfast","modern_art","movie_title","icebreaker","midnight_snack","office_fridge","snack_mess"],
+  hard: ["alive","bignum","odds","soonness","quantity","apology","fib","time_estimate","reply_speed","math_problem","recipe","password","app_permission","fake_natural"],
+  weird: ["alien","magic","menace","ancient","sus","browser_tabs","text_punctuation","hallway","mystery_noise","map_icon","souvenir","elevator","username"],
+  practical: ["battery","notification","meeting","bookmark","coffee","sale","outfit_weather","game_button","loading","backup_plan","inconvenience","software_button","adult_task","airport","leftovers"]
+};
+const DAILY_TYPES = ["funny", "hard", "weird", "practical"];
+
 const GRADES = [
   [90,"Certified Mind Reader 🧠"],
   [75,"In Sync With Humanity"],
@@ -838,14 +877,22 @@ function dateKey(d) {
 }
 function todayKey() { return dateKey(new Date()); }
 function yesterdayKey() { const d = new Date(); d.setDate(d.getDate() - 1); return dateKey(d); }
-function dailyNumber() {
-  const d = new Date();
+function dailyNumberForDate(d) {
   const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
   return Math.floor((utc - EPOCH) / 86400000) + 1;
 }
-function dailyRound() {
-  const n = dailyNumber();
-  return ROUNDS[((n * 17) % ROUNDS.length + ROUNDS.length) % ROUNDS.length];
+function dailyNumber() { return dailyNumberForDate(new Date()); }
+function dateFromKey(key) {
+  const parts = String(key).split("-").map(Number);
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+function dailyNumberForKey(key) { return dailyNumberForDate(dateFromKey(key)); }
+function roundById(id) { return ROUNDS.find(r => r.id === id) || ROUNDS[0]; }
+function dailyRound(n) {
+  n = n || dailyNumber();
+  const type = DAILY_TYPES[((n - 1) % DAILY_TYPES.length + DAILY_TYPES.length) % DAILY_TYPES.length];
+  const pool = DAILY_POOL[type];
+  return roundById(pool[((Math.floor((n - 1) / DAILY_TYPES.length) * 7 + n) % pool.length + pool.length) % pool.length]);
 }
 function sqEmoji(d) { return d <= 8 ? "🟩" : d <= 18 ? "🟨" : d <= 32 ? "🟧" : "🟥"; }
 function msUntilMidnight() {
@@ -867,7 +914,8 @@ let gameRounds = [], roundIdx = 0, scores = [], placed = {}, revealed = false;
 let dailySquares = "", dailyDone = null;
 let dragging = false;
 let playerName = "", playerId = "";
-let authToken = "", signedIn = false;
+let authToken = "", signedIn = false, isAdmin = false;
+let activeDailyKey = "", activeDailyNumber = 0, lastRoundResult = null;
 let countdownTimer = null;
 
 /* ================= STORAGE ================= */
@@ -925,10 +973,12 @@ async function getLeaderboard(key) {
 async function postToLeaderboard(score, squares) {
   if (store.mode === "server") {
     try {
-      const res = await fetch("/api/leaderboard/" + encodeURIComponent(todayKey()), {
+      const key = activeDailyKey || todayKey();
+      const num = activeDailyNumber || dailyNumber();
+      const res = await fetch("/api/leaderboard/" + encodeURIComponent(key), {
         method: "POST",
         headers: store._headers(true),
-        body: JSON.stringify({ pid: playerId, name: playerName, score, squares, dailyNumber: dailyNumber() })
+        body: JSON.stringify({ pid: playerId, name: playerName, score, squares, dailyNumber: num })
       });
       if (res.ok) return;
     } catch (e) {}
@@ -957,6 +1007,7 @@ async function loadIdentity() {
         signedIn = true;
         playerId = me.pid;
         playerName = me.name;
+        isAdmin = !!me.isAdmin;
         try {
           localStorage.setItem("ss:pref:pid", playerId);
           localStorage.setItem("ss:pref:name", playerName);
@@ -965,7 +1016,7 @@ async function loadIdentity() {
         return;
       }
     } catch (e) {}
-    authToken = ""; signedIn = false;
+    authToken = ""; signedIn = false; isAdmin = false;
     try { localStorage.removeItem("ss:auth:token"); } catch (e) {}
   }
   try {
@@ -985,6 +1036,16 @@ async function loadIdentity() {
 function cleanName(s) {
   return s.replace(/[<>&"']/g, "").trim().slice(0, 14);
 }
+function trackEvent(event, key) {
+  if (store.mode !== "server") return;
+  try {
+    fetch("/api/analytics", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ event, dayKey: key || todayKey() })
+    }).catch(() => {});
+  } catch (e) {}
+}
 function renderAuthStatus() {
   const status = $("authStatus");
   const btn = $("authBtn");
@@ -996,10 +1057,12 @@ function renderAuthStatus() {
     status.textContent = "Playing as guest";
     btn.textContent = "Sign in";
   }
+  const analyticsBtn = $("analyticsBtn");
+  if (analyticsBtn) analyticsBtn.style.display = isAdmin ? "" : "none";
 }
 
 /* ---- personal stats ---- */
-const EMPTY_STATS = { g:0, r:0, s:0, hi:null, lo:null, d:0, streak:0, lastDaily:"" };
+const EMPTY_STATS = { g:0, r:0, s:0, hi:null, lo:null, d:0, streak:0, bestStreak:0, lastDaily:"" };
 let statsCache = null;
 async function getStats() {
   if (statsCache) return statsCache;
@@ -1032,6 +1095,7 @@ async function recordDaily() {
   const st = await getStats();
   st.d += 1;
   st.streak = (st.lastDaily === yesterdayKey()) ? st.streak + 1 : 1;
+  st.bestStreak = Math.max(st.bestStreak || 0, st.streak);
   st.lastDaily = todayKey();
   await saveStats();
 }
@@ -1078,7 +1142,7 @@ function closeModal() {
 $("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) closeModal(); });
 
 function showLockModal() {
-  sfx.click();
+  sfx.open();
   openModal(
     '<div class="big">🔒</div>' +
     '<h3>Daily complete!</h3>' +
@@ -1175,7 +1239,7 @@ async function submitAuth(action) {
     const res = await fetch("/api/auth/" + action, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, password })
+      body: JSON.stringify({ name, password, dayKey: todayKey() })
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -1187,6 +1251,7 @@ async function submitAuth(action) {
     signedIn = true;
     playerId = data.pid;
     playerName = data.name;
+    isAdmin = !!data.isAdmin;
     statsCache = null;
     try {
       localStorage.setItem("ss:auth:token", authToken);
@@ -1218,7 +1283,7 @@ async function signOut() {
   try {
     await fetch("/api/auth/logout", { method: "POST", headers: store._headers(false) });
   } catch (e) {}
-  authToken = ""; signedIn = false; statsCache = null;
+  authToken = ""; signedIn = false; isAdmin = false; statsCache = null;
   try { localStorage.removeItem("ss:auth:token"); } catch (e) {}
   playerId = ""; playerName = ""; dailyDone = null;
   await loadIdentity();
@@ -1227,7 +1292,7 @@ async function signOut() {
 
 function toggleAuth() {
   if (signedIn) signOut();
-  else { sfx.click(); showAuthModal("login"); }
+  else { sfx.open(); showAuthModal("login"); }
 }
 
 function hasGuestPracticeRun() {
@@ -1242,25 +1307,31 @@ function requireSignIn(reason) {
 
 /* ================= GAME FLOW ================= */
 function startQuick() {
-  sfx.click();
+  sfx.menu();
   if (!signedIn && hasGuestPracticeRun()) {
     requireSignIn("Create a free account to play more practice rounds and keep your history.");
     return;
   }
   if (!signedIn) markGuestPracticeRun();
+  trackEvent("practice_start");
   mode = "quick";
+  activeDailyKey = ""; activeDailyNumber = 0; lastRoundResult = null;
   gameRounds = [...ROUNDS].sort(() => Math.random() - .5).slice(0, 5);
   roundIdx = 0; scores = [];
   loadRound();
   show("round");
 }
 function startDaily() {
-  sfx.click();
+  sfx.menu();
   if (dailyDone) { showLockModal(); return; }
   const begin = () => {
     mode = "daily";
-    gameRounds = [dailyRound()];
+    activeDailyKey = todayKey();
+    activeDailyNumber = dailyNumber();
+    lastRoundResult = null;
+    gameRounds = [dailyRound(activeDailyNumber)];
     roundIdx = 0; scores = []; dailySquares = "";
+    trackEvent("daily_start", activeDailyKey);
     loadRound();
     show("round");
   };
@@ -1268,8 +1339,53 @@ function startDaily() {
   else begin();
 }
 
+function archiveDateKey(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return dateKey(d);
+}
+function showArchiveModal() {
+  sfx.open();
+  if (!signedIn) {
+    requireSignIn("Sign in to play past daily lines without affecting today's streak.");
+    return;
+  }
+  let html = '<div class="big">🗂️</div><h3>Daily archive</h3>' +
+    '<p>Past lines are just for fun. Today is the only one that counts for streaks and leaderboard.</p>' +
+    '<div class="archive-list">';
+  let count = 0;
+  for (let i = 1; i <= 10; i++) {
+    const key = archiveDateKey(i);
+    const n = dailyNumberForKey(key);
+    if (n < 1) continue;
+    count++;
+    const r = dailyRound(n);
+    html += '<button class="archive-item" data-key="' + key + '" type="button">' +
+      '<span>Daily #' + n + '</span><span>' + esc(r.a) + ' → ' + esc(r.b) + '</span></button>';
+  }
+  if (!count) html += '<div class="analytics-row"><span>No archive yet</span><span>Check back tomorrow</span></div>';
+  html += '</div><button class="btn secondary" id="archiveClose">Back</button>';
+  openModal(html);
+  document.querySelectorAll(".archive-item").forEach(btn => {
+    btn.addEventListener("click", () => startArchive(btn.getAttribute("data-key")));
+  });
+  $("archiveClose").addEventListener("click", () => { sfx.click(); closeModal(); });
+}
+function startArchive(key) {
+  sfx.menu();
+  closeModal();
+  mode = "archive";
+  activeDailyKey = key;
+  activeDailyNumber = dailyNumberForKey(key);
+  lastRoundResult = null;
+  gameRounds = [dailyRound(activeDailyNumber)];
+  roundIdx = 0; scores = []; dailySquares = "";
+  loadRound();
+  show("round");
+}
+
 function renderProgress() {
-  if (mode === "daily") { $("progress").innerHTML = ""; return; }
+  if (mode === "daily" || mode === "archive") { $("progress").innerHTML = ""; return; }
   $("progress").innerHTML = gameRounds
     .map((_, i) => {
       if (i < roundIdx || (i === roundIdx && scores[i] !== undefined))
@@ -1284,7 +1400,8 @@ function loadRound() {
   const r = gameRounds[roundIdx];
   placed = {}; revealed = false;
 
-  $("modeLabel").textContent = mode === "daily" ? "Daily #" + dailyNumber() : "";
+  $("modeLabel").textContent = mode === "daily" ? "Daily #" + activeDailyNumber :
+    mode === "archive" ? "Archive #" + activeDailyNumber : "";
   renderProgress();
   $("axisLabel").innerHTML =
     '<span class="a">' + esc(r.a) + '</span><span class="arrow">→</span><span class="b">' + esc(r.b) + '</span>';
@@ -1451,16 +1568,18 @@ async function submitRound() {
   setTimeout(() => renderPins(), 360);
 
   let totalDist = 0, worst = { d: -1 };
+  let closest = { d: 999 };
   const dists = [];
   const crowdData = r.items.map(([name, seed]) => {
     const avg = crowdAvg(seed, crowd[name]);
     const d = Math.abs(avg - placed[name]);
     totalDist += d;
     dists.push(d);
+    if (d < closest.d) closest = { d, name, avg, mine: placed[name] };
     if (d > worst.d) worst = { d, name, avg, mine: placed[name] };
     return { name, avg };
   });
-  if (mode === "daily") dailySquares = dists.map(sqEmoji).join("");
+  if (mode === "daily" || mode === "archive") dailySquares = dists.map(sqEmoji).join("");
 
   const trackTop = 130;
   const sorted = [...crowdData].sort((a, b) => a.avg - b.avg);
@@ -1486,6 +1605,7 @@ async function submitRound() {
   const avgDist = totalDist / r.items.length;
   const score = Math.round(Math.max(0, 100 - avgDist * 1.6));
   scores.push(score);
+  lastRoundResult = { score, squares: dailySquares, closest, boldest: worst, axis: r.a + " → " + r.b };
 
   const bucket = score >= 80 ? "high" : score >= 55 ? "mid" : "low";
   let quip = QUIPS[bucket][Math.floor(Math.random() * QUIPS[bucket].length)];
@@ -1518,10 +1638,11 @@ async function submitRound() {
   recordRound(r.a + " → " + r.b, score);
 
   if (mode === "daily" && !dailyDone) {
-    dailyDone = { score, squares: dailySquares, n: dailyNumber() };
-    try { await store.set("daily:" + todayKey(), JSON.stringify(dailyDone)); } catch (e) {}
+    dailyDone = { score, squares: dailySquares, n: activeDailyNumber };
+    try { await store.set("daily:" + activeDailyKey, JSON.stringify(dailyDone)); } catch (e) {}
     await recordDaily();
     await postToLeaderboard(score, dailySquares);
+    trackEvent("daily_complete", activeDailyKey);
     refreshDailyTag();
   }
 }
@@ -1547,25 +1668,38 @@ async function showFinal() {
   $("leaderboard").innerHTML = "";
 
   if (mode === "daily") {
-    $("finalSub").textContent = "Daily #" + dailyNumber() + " — new line at midnight";
+    $("finalSub").textContent = "Daily #" + activeDailyNumber + " — new line at midnight";
     $("finalBars").innerHTML = "";
     $("squares").textContent = (dailyDone && dailyDone.squares) || dailySquares;
     $("shareBtn").style.display = "";
     $("againBtn").style.display = "none";
+    const board = await getLeaderboard(activeDailyKey || todayKey());
+    const rank = board.findIndex(e2 => e2.pid === playerId);
 
     if (signedIn) {
       const st = await getStats();
       const streak = currentStreak(st);
       const avgSync = st.r ? Math.round(st.s / st.r) : 0;
-      $("miniStats").innerHTML =
-        (streak > 0 ? "🔥 " + streak + "-day streak &nbsp;·&nbsp; " : "") +
-        '<span style="color:' + scoreColor(avgSync) + '; font-weight:700;">' + avgSync + '</span> avg sync' +
-        " &nbsp;·&nbsp; " + st.d + (st.d === 1 ? " daily" : " dailies");
+      $("miniStats").innerHTML = rewardHtml({
+        rank, board,
+        streak,
+        bestStreak: st.bestStreak || streak,
+        avgSync,
+        result: lastRoundResult
+      });
     } else {
       $("miniStats").textContent = "Sign in to save streaks, stats, and future practice rounds.";
     }
 
-    renderLeaderboard();
+    renderLeaderboard(board);
+  } else if (mode === "archive") {
+    $("finalSub").textContent = "Archive #" + activeDailyNumber + " — just for fun";
+    $("finalBars").innerHTML = "";
+    $("squares").textContent = dailySquares;
+    $("shareBtn").style.display = "none";
+    $("againBtn").style.display = "none";
+    $("miniStats").innerHTML = rewardHtml({ result: lastRoundResult, archive: true });
+    $("leaderboard").innerHTML = '<div class="lb-note">Archive plays do not affect today\'s streak or leaderboard.</div>';
   } else {
     $("finalSub").textContent = "how each round went";
     $("squares").textContent = "";
@@ -1583,8 +1717,29 @@ async function showFinal() {
   else { setTimeout(() => sfx.womp(), 300); }
 }
 
-async function renderLeaderboard() {
-  const board = await getLeaderboard(todayKey());
+function rewardHtml(info) {
+  const result = info.result || {};
+  const cells = [];
+  if (!info.archive && info.rank >= 0) {
+    const total = Math.max(1, info.board.length);
+    const percentile = Math.round(((total - info.rank - 1) / total) * 100);
+    cells.push(["Rank", "#" + (info.rank + 1) + " today"]);
+    cells.push(["Percentile", "Ahead of " + percentile + "%"]);
+  }
+  if (!info.archive && info.streak !== undefined) {
+    cells.push(["Current streak", (info.streak || 0) + " day" + ((info.streak || 0) === 1 ? "" : "s")]);
+    cells.push(["Best streak", (info.bestStreak || 0) + " day" + ((info.bestStreak || 0) === 1 ? "" : "s")]);
+  }
+  if (result.closest) cells.push(["Closest take", result.closest.name]);
+  if (result.boldest) cells.push(["Boldest take", result.boldest.name]);
+  if (!cells.length) return "";
+  return '<div class="reward-grid">' + cells.map(([k, v]) =>
+    '<div class="reward-cell"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + '</span></div>'
+  ).join("") + '</div>';
+}
+
+async function renderLeaderboard(board) {
+  board = board || await getLeaderboard(todayKey());
   const el = $("leaderboard");
   if (!board.length) {
     el.innerHTML = '<h3>Today\'s leaderboard</h3><div class="lb-note">You\'re the first to finish today — top of the board by default 👑</div>';
@@ -1600,6 +1755,7 @@ async function renderLeaderboard() {
       '<span class="nm">' + esc(e2.n) + '</span>' +
       '<span class="sq">' + esc(e2.q) + '</span>' +
       '<span class="sc" style="color:' + scoreColor(e2.s) + '">' + e2.s + '</span>' +
+      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(e2.n) + '">!</button>' +
       '</div>';
   });
   const myRank = board.findIndex(e2 => e2.pid === playerId);
@@ -1608,25 +1764,43 @@ async function renderLeaderboard() {
     html += '<div class="lb-row me"><span class="rank">' + (myRank + 1) + '.</span>' +
       '<span class="nm">' + esc(mine.n) + '</span>' +
       '<span class="sq">' + esc(mine.q) + '</span>' +
-      '<span class="sc" style="color:' + scoreColor(mine.s) + '">' + mine.s + '</span></div>';
+      '<span class="sc" style="color:' + scoreColor(mine.s) + '">' + mine.s + '</span>' +
+      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(mine.n) + '">!</button></div>';
   }
   html += '<div class="lb-note">' + board.length + ' player' + (board.length === 1 ? "" : "s") + ' so far today · names are public</div>';
   el.innerHTML = html;
+  el.querySelectorAll(".report-btn").forEach(btn => btn.addEventListener("click", () => reportName(btn.getAttribute("data-report"))));
+}
+
+async function reportName(name) {
+  sfx.soft();
+  try {
+    await fetch("/api/report", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ type: "name", value: name, reason: "leaderboard name" })
+    });
+  } catch (e) {}
+  openModal('<div class="big">✓</div><h3>Reported</h3><p>Thanks. We will keep the leaderboard tidy.</p><button class="btn" id="reportOk">OK</button>');
+  $("reportOk").addEventListener("click", () => { sfx.click(); closeModal(); });
 }
 
 async function shareDaily() {
-  const r = dailyRound();
+  const n = activeDailyNumber || dailyNumber();
+  const key = activeDailyKey || todayKey();
+  const r = dailyRound(n);
   const score = dailyDone ? dailyDone.score : (scores[scores.length - 1] || 0);
   const sq = (dailyDone && dailyDone.squares) || dailySquares || "";
-  const st = await getStats();
-  const streak = currentStreak(st);
-  const board = await getLeaderboard(todayKey());
+  const st = signedIn ? await getStats() : Object.assign({}, EMPTY_STATS);
+  const streak = signedIn ? currentStreak(st) : 0;
+  const board = await getLeaderboard(key);
   const rank = board.findIndex(e2 => e2.pid === playerId);
-  const text = "Crowdline — Daily #" + dailyNumber() + "\n" +
+  const text = "Crowdline #" + n + "\n" +
                r.a + " → " + r.b + "\n" +
-               sq + "  " + score + "/100" +
-               (rank >= 0 ? "  (#" + (rank + 1) + " today)" : "") +
-               (streak > 1 ? "\n🔥 " + streak + "-day streak" : "");
+               sq + "  " + score + "/100\n" +
+               (rank >= 0 ? "Rank #" + (rank + 1) + " today\n" : "") +
+               (streak > 1 ? streak + "-day streak\n" : "") +
+               "playcrowdline.com";
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
     try {
@@ -1638,13 +1812,14 @@ async function shareDaily() {
   }
   const btn = $("shareBtn");
   btn.textContent = ok ? "Copied!" : "Couldn't copy";
+  if (ok) trackEvent("share_copied", key);
   sfx.click();
   setTimeout(() => { btn.textContent = "Share"; }, 1600);
 }
 
 /* ================= STATS SCREEN ================= */
 async function showStats() {
-  sfx.click();
+  sfx.open();
   if (!signedIn) {
     requireSignIn("Sign in to unlock stats, streaks, and your best and boldest lines.");
     return;
@@ -1665,11 +1840,33 @@ async function showStats() {
       '<div class="stat-rows">' +
         '<div class="stat-row"><span class="k">Rounds played</span><span class="v">' + st.r + '</span></div>' +
         '<div class="stat-row"><span class="k">Dailies completed</span><span class="v">' + st.d + '</span></div>' +
+        '<div class="stat-row"><span class="k">Best streak</span><span class="v">' + (st.bestStreak || 0) + '</span></div>' +
         (st.hi ? '<div class="stat-row"><span class="k">Most in-sync 🧠<br/>' + esc(st.hi.ax) + '</span><span class="v" style="color:' + scoreColor(st.hi.sc) + '">' + st.hi.sc + '</span></div>' : '') +
         (st.lo ? '<div class="stat-row"><span class="k">Boldest take 👽<br/>' + esc(st.lo.ax) + '</span><span class="v" style="color:' + scoreColor(st.lo.sc) + '">' + st.lo.sc + '</span></div>' : '') +
       '</div>';
   }
   show("stats");
+}
+
+async function showAnalytics() {
+  sfx.open();
+  if (!isAdmin) return;
+  openModal('<div class="big">📈</div><h3>Analytics</h3><p>Privacy-friendly event counts only.</p><div class="analytics-list" id="analyticsBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div><button class="btn secondary" id="analyticsClose">Close</button>');
+  $("analyticsClose").addEventListener("click", () => { sfx.click(); closeModal(); });
+  try {
+    const data = await fetch("/api/analytics/summary", { headers: store._headers(false) }).then(r => r.json());
+    const order = ["daily_start", "daily_complete", "practice_start", "signup", "share_copied"];
+    $("analyticsBody").innerHTML = order.map(event =>
+      '<div class="analytics-row"><span>' + event.replace(/_/g, " ") + '</span><span>' + ((data.totals && data.totals[event]) || 0) + '</span></div>'
+    ).join("");
+  } catch (e) {
+    $("analyticsBody").innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
+  }
+}
+
+function openPublicLeaderboard() {
+  sfx.soft();
+  window.location.href = "/leaderboard";
 }
 
 /* ================= DAILY TAG ================= */
@@ -1691,13 +1888,16 @@ async function refreshDailyTag() {
 
 /* ================= WIRING ================= */
 $("startBtn").addEventListener("click", startQuick);
+$("archiveBtn").addEventListener("click", showArchiveModal);
 $("dailyBtn").addEventListener("click", startDaily);
 $("submitBtn").addEventListener("click", submitRound);
 $("nextBtn").addEventListener("click", nextRound);
 $("againBtn").addEventListener("click", startQuick);
-$("homeBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
+$("homeBtn").addEventListener("click", () => { sfx.soft(); refreshDailyTag(); show("title"); });
 $("shareBtn").addEventListener("click", shareDaily);
 $("statsBtn").addEventListener("click", showStats);
+$("leaderboardBtn").addEventListener("click", openPublicLeaderboard);
+$("analyticsBtn").addEventListener("click", showAnalytics);
 $("statsBackBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
 $("authBtn").addEventListener("click", toggleAuth);
 $("soundBtn").addEventListener("click", toggleMute);
