@@ -305,6 +305,28 @@
   .legend .them { display:inline-block; width:11px; height:11px; border-radius:50%; background:var(--ink); vertical-align:-1px; }
 
   .controls { text-align: center; margin-top: 16px; min-height: 52px; }
+  .round-curation {
+    max-width: 430px; margin: 4px auto 0;
+    background: #fff; border-radius: 12px; padding: 10px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.08);
+    display: grid; gap: 8px;
+  }
+  .round-curation.off { display: none; }
+  .round-curation-label {
+    color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    font-weight: 700; text-align: center;
+  }
+  .round-curation-controls { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+  .round-curation select {
+    min-width: 0; border: 2px solid #dfe6e2; border-radius: 10px;
+    padding: 9px 10px; color: var(--ink); background: #fff;
+    font: 700 13px "Trebuchet MS", sans-serif;
+  }
+  .round-curation .mini-save {
+    border: none; border-radius: 999px; background: var(--accent); color: #fff;
+    cursor: pointer; padding: 9px 13px; font: 700 12px "Trebuchet MS", sans-serif;
+  }
+  .round-curation-note { color: var(--muted); font-size: 11px; text-align: center; min-height: 15px; }
 
   /* ---------- final ---------- */
   #final { text-align: center; padding-top: 6vh; }
@@ -583,6 +605,7 @@
       <button class="btn" id="submitBtn" disabled>Lock it in</button>
       <button class="btn" id="nextBtn" style="display:none;">Next</button>
     </div>
+    <div class="round-curation off" id="roundCuration"></div>
   </div>
 
   <!-- FINAL -->
@@ -1249,6 +1272,7 @@ async function loadIdentity() {
         playerId = me.pid;
         playerName = me.name;
         isAdmin = !!me.isAdmin;
+        adminCurationLoaded = false;
         try {
           localStorage.setItem("ss:pref:pid", playerId);
           localStorage.setItem("ss:pref:name", playerName);
@@ -1516,6 +1540,7 @@ async function submitAuth(action) {
     playerId = data.pid;
     playerName = data.name;
     isAdmin = !!data.isAdmin;
+    adminCurationLoaded = false;
     statsCache = null;
     try {
       localStorage.setItem("ss:auth:token", authToken);
@@ -1551,6 +1576,7 @@ async function signOut() {
     await fetch("/api/auth/logout", { method: "POST", headers: store._headers(false) });
   } catch (e) {}
   authToken = ""; signedIn = false; isAdmin = false; statsCache = null;
+  adminCuration = {}; adminCurationLoaded = false;
   try { localStorage.removeItem("ss:auth:token"); } catch (e) {}
   playerId = ""; playerName = ""; dailyDone = null;
   await loadIdentity();
@@ -1709,6 +1735,8 @@ function loadRound() {
   const items = [...r.items].sort(() => Math.random() - .5);
   for (const [name] of items) tray.appendChild(makeChip(name));
   showDragHint(items[0] && items[0][0]);
+  renderRoundCuration();
+  if (isAdmin && !adminCurationLoaded) ensureAdminCuration().then(renderRoundCuration);
 }
 
 function makeChip(name) {
@@ -2173,7 +2201,7 @@ const CURATION_LABELS = {
   funny: "Funny",
   needs_review: "Needs review"
 };
-let adminCuration = {};
+let adminCuration = {}, adminCurationLoaded = false;
 
 function curationLabel(value) {
   return CURATION_LABELS[value] || value || "Unmarked";
@@ -2181,6 +2209,64 @@ function curationLabel(value) {
 
 function roundOptionLabel(round) {
   return round.id + " - " + round.a + " / " + round.b;
+}
+
+async function ensureAdminCuration() {
+  if (!isAdmin || adminCurationLoaded) return;
+  const data = await fetch("/api/curation", { headers: store._headers(false) }).then(r => r.json());
+  adminCuration = {};
+  (data.items || []).forEach(item => { adminCuration[item.roundId] = item; });
+  adminCurationLoaded = true;
+}
+
+function renderRoundCuration() {
+  const panel = $("roundCuration");
+  if (!panel) return;
+  const r = gameRounds[roundIdx];
+  if (!isAdmin || mode !== "quick" || !r) {
+    panel.classList.add("off");
+    panel.innerHTML = "";
+    return;
+  }
+  const mark = adminCuration[r.id] || {};
+  panel.classList.remove("off");
+  panel.innerHTML =
+    '<div class="round-curation-label">Admin label · ' + esc(r.id) + '</div>' +
+    '<div class="round-curation-controls">' +
+      '<select id="roundCurationLabel" aria-label="Admin label">' +
+        Object.keys(CURATION_LABELS).map(key => '<option value="' + key + '"' + ((mark.label || "unmarked") === key ? " selected" : "") + '>' + curationLabel(key) + '</option>').join("") +
+      '</select>' +
+      '<button class="mini-save" id="roundCurationSave" type="button">Save</button>' +
+    '</div>' +
+    '<div class="round-curation-note" id="roundCurationStatus">' + (mark.note ? esc(mark.note) : "Score this practice round while you play.") + '</div>';
+  $("roundCurationSave").addEventListener("click", saveCurrentRoundCuration);
+}
+
+async function saveCurrentRoundCuration() {
+  const r = gameRounds[roundIdx];
+  const labelEl = $("roundCurationLabel");
+  const status = $("roundCurationStatus");
+  if (!r || !labelEl || !status) return;
+  const label = labelEl.value;
+  status.textContent = "Saving...";
+  try {
+    const res = await fetch("/api/curation", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ roundId: r.id, label, note: "" })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      status.textContent = data.error || "Could not save.";
+      return;
+    }
+    if (label === "unmarked") delete adminCuration[r.id];
+    else adminCuration[r.id] = { roundId: r.id, label, note: "", updatedAt: "" };
+    status.textContent = label === "unmarked" ? "Cleared." : "Saved as " + curationLabel(label) + ".";
+    sfx.click();
+  } catch (e) {
+    status.textContent = "Could not reach the server.";
+  }
 }
 
 async function shareDaily(sourceBtn) {
@@ -2337,9 +2423,8 @@ async function loadAdminCuration() {
   const body = $("curationBody");
   if (!body) return;
   try {
-    const data = await fetch("/api/curation", { headers: store._headers(false) }).then(r => r.json());
-    adminCuration = {};
-    (data.items || []).forEach(item => { adminCuration[item.roundId] = item; });
+    adminCurationLoaded = false;
+    await ensureAdminCuration();
     renderCurationPanel();
   } catch (e) {
     body.innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
@@ -2419,6 +2504,7 @@ async function saveCurationMark() {
     status.textContent = label === "unmarked" ? "Cleared." : "Saved.";
     sfx.click();
     renderCurationList();
+    renderRoundCuration();
   } catch (e) {
     status.textContent = "Could not reach the server.";
   }
