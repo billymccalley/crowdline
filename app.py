@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
+import datetime as dt
 import json
 import hashlib
 import hmac
@@ -21,6 +22,7 @@ HOST = os.environ.get("HOST", "0.0.0.0")
 PORT = int(os.environ.get("PORT", "3000"))
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120"))
 WRITE_LIMIT_PER_MINUTE = int(os.environ.get("WRITE_LIMIT_PER_MINUTE", "45"))
+DAILY_EPOCH = dt.date(2026, 7, 11)
 
 ID_RE = re.compile(r"^[a-zA-Z0-9:_-]+$")
 DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -80,6 +82,7 @@ NAME_FILTER_TRANS = str.maketrans({
 DB_LOCK = threading.RLock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
+ROUND_IDS_CACHE = None
 
 
 def now_iso():
@@ -185,6 +188,13 @@ def init_db():
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS daily_rounds (
+              day_key TEXT PRIMARY KEY,
+              daily_number INTEGER NOT NULL UNIQUE,
+              round_id TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_crowd_votes_round
               ON crowd_votes (round_id);
 
@@ -199,6 +209,9 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_feedback_status
               ON feedback (status, created_at);
+
+            CREATE INDEX IF NOT EXISTS idx_daily_rounds_round
+              ON daily_rounds (round_id);
             """
         )
         DB.commit()
@@ -214,6 +227,108 @@ def clean_id(value, max_length):
 def clean_day_key(value):
     text = str(value or "").strip()
     return text if DAY_RE.match(text) else ""
+
+
+def daily_number_for_key(day_key):
+    try:
+        year, month, day = [int(part) for part in str(day_key).split("-")]
+        date_value = dt.date(year, month, day)
+    except (TypeError, ValueError):
+        return 0
+    return (date_value - DAILY_EPOCH).days + 1
+
+
+def stable_hash(value):
+    h = 2166136261
+    for char in str(value):
+        h ^= ord(char)
+        h = (h * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def round_ids():
+    global ROUND_IDS_CACHE
+    if ROUND_IDS_CACHE is None:
+        text = (PUBLIC_DIR / "index.html").read_text(encoding="utf-8")
+        seen = []
+        for match in re.finditer(r'\{\s*id:"([^"]+)"', text):
+            round_id = match.group(1)
+            if round_id not in seen:
+                seen.append(round_id)
+        ROUND_IDS_CACHE = seen or ["edible"]
+    return ROUND_IDS_CACHE
+
+
+def daily_label_rank(label):
+    if label == "daily":
+        return 0
+    if label == "funny":
+        return 1
+    if label in {"too_easy", "too_hard"}:
+        return 3
+    if label in {"confusing", "needs_review"}:
+        return 4
+    return 2
+
+
+def daily_schedule_ids():
+    labels = {
+        row["round_id"]: row["label"]
+        for row in DB.execute("SELECT round_id, label FROM puzzle_curation").fetchall()
+    }
+    return sorted(
+        round_ids(),
+        key=lambda round_id: (
+            daily_label_rank(labels.get(round_id, "unmarked")),
+            stable_hash("crowdline-daily:" + round_id),
+        ),
+    )
+
+
+def locked_daily_round(day_key):
+    day_key = clean_day_key(day_key)
+    daily_number = daily_number_for_key(day_key)
+    if not day_key or daily_number < 1:
+        return None
+
+    existing = DB.execute(
+        "SELECT day_key, daily_number, round_id FROM daily_rounds WHERE day_key = ?",
+        (day_key,),
+    ).fetchone()
+    if existing:
+        return existing
+
+    schedule = daily_schedule_ids()
+    cycle_size = len(schedule)
+    cycle = (daily_number - 1) // cycle_size
+    cycle_start = cycle * cycle_size + 1
+    cycle_end = cycle_start + cycle_size - 1
+    used = {
+        row["round_id"]
+        for row in DB.execute(
+            """
+            SELECT round_id
+            FROM daily_rounds
+            WHERE daily_number BETWEEN ? AND ?
+            """,
+            (cycle_start, cycle_end),
+        ).fetchall()
+    }
+    round_id = next((candidate for candidate in schedule if candidate not in used), schedule[(daily_number - 1) % cycle_size])
+    timestamp = now_iso()
+    DB.execute(
+        """
+        INSERT INTO daily_rounds (day_key, daily_number, round_id, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(day_key) DO NOTHING
+        """,
+        (day_key, daily_number, round_id, timestamp),
+    )
+    row = DB.execute(
+        "SELECT day_key, daily_number, round_id FROM daily_rounds WHERE day_key = ?",
+        (day_key,),
+    ).fetchone()
+    return row
 
 
 def clean_player_name(value):
@@ -360,6 +475,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) == 3 and parts[1] == "leaderboard":
             self.handle_leaderboard(parts[2])
+            return
+
+        if len(parts) == 3 and parts[1] == "daily":
+            self.handle_daily(parts[2])
             return
 
         if len(parts) >= 2 and parts[1] == "analytics":
@@ -560,6 +679,22 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         self.send_error_json(404, "Not found")
+
+    def handle_daily(self, day_key_raw):
+        if self.command != "GET":
+            self.send_error_json(405, "Method not allowed")
+            return
+        with DB_LOCK:
+            row = locked_daily_round(day_key_raw)
+            if not row:
+                self.send_error_json(400, "Invalid daily key")
+                return
+            DB.commit()
+            self.send_json(200, {
+                "dayKey": row["day_key"],
+                "dailyNumber": row["daily_number"],
+                "roundId": row["round_id"],
+            })
 
     def handle_curation(self, parts):
         with DB_LOCK:
