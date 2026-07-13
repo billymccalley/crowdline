@@ -35,7 +35,7 @@ ANALYTICS_EVENTS = {
     "share_copied",
 }
 FEEDBACK_CATEGORIES = {"bug", "confusing", "idea", "content", "account", "other"}
-CURATION_LABELS = {"daily", "confusing", "too_easy", "too_hard", "funny", "needs_review"}
+CURATION_LABELS = {"daily", "confusing", "too_easy", "too_hard", "funny", "needs_review", "retired"}
 ADMIN_NAMES = {"billy"}
 BLOCKED_NAME_PARTS = {
     "fuck",
@@ -87,6 +87,14 @@ ROUND_IDS_CACHE = None
 
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def today_key():
+    return dt.date.today().isoformat()
+
+
+def date_key_for_offset(days_ahead):
+    return (dt.date.today() + dt.timedelta(days=days_ahead)).isoformat()
 
 
 def connect_db():
@@ -238,6 +246,14 @@ def daily_number_for_key(day_key):
     return (date_value - DAILY_EPOCH).days + 1
 
 
+def date_for_key(day_key):
+    try:
+        year, month, day = [int(part) for part in str(day_key).split("-")]
+        return dt.date(year, month, day)
+    except (TypeError, ValueError):
+        return None
+
+
 def stable_hash(value):
     h = 2166136261
     for char in str(value):
@@ -276,13 +292,40 @@ def daily_schedule_ids():
         row["round_id"]: row["label"]
         for row in DB.execute("SELECT round_id, label FROM puzzle_curation").fetchall()
     }
+    ids = [round_id for round_id in round_ids() if labels.get(round_id) != "retired"]
+    if not ids:
+        ids = round_ids()
     return sorted(
-        round_ids(),
+        ids,
         key=lambda round_id: (
             daily_label_rank(labels.get(round_id, "unmarked")),
             stable_hash("crowdline-daily:" + round_id),
         ),
     )
+
+
+def used_daily_round_ids(except_day_key=""):
+    if except_day_key:
+        rows = DB.execute(
+            "SELECT round_id FROM daily_rounds WHERE day_key != ?",
+            (except_day_key,),
+        ).fetchall()
+    else:
+        rows = DB.execute("SELECT round_id FROM daily_rounds").fetchall()
+    return {row["round_id"] for row in rows}
+
+
+def next_daily_round_id(daily_number, extra_used=None):
+    schedule = daily_schedule_ids()
+    if not schedule:
+        return ""
+    used = used_daily_round_ids()
+    if extra_used:
+        used.update(extra_used)
+    for candidate in schedule:
+        if candidate not in used:
+            return candidate
+    return ""
 
 
 def locked_daily_round(day_key):
@@ -298,23 +341,9 @@ def locked_daily_round(day_key):
     if existing:
         return existing
 
-    schedule = daily_schedule_ids()
-    cycle_size = len(schedule)
-    cycle = (daily_number - 1) // cycle_size
-    cycle_start = cycle * cycle_size + 1
-    cycle_end = cycle_start + cycle_size - 1
-    used = {
-        row["round_id"]
-        for row in DB.execute(
-            """
-            SELECT round_id
-            FROM daily_rounds
-            WHERE daily_number BETWEEN ? AND ?
-            """,
-            (cycle_start, cycle_end),
-        ).fetchall()
-    }
-    round_id = next((candidate for candidate in schedule if candidate not in used), schedule[(daily_number - 1) % cycle_size])
+    round_id = next_daily_round_id(daily_number)
+    if not round_id:
+        return None
     timestamp = now_iso()
     DB.execute(
         """
@@ -479,6 +508,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) == 3 and parts[1] == "daily":
             self.handle_daily(parts[2])
+            return
+
+        if len(parts) >= 2 and parts[1] == "daily-admin":
+            self.handle_daily_admin(parts)
             return
 
         if len(parts) >= 2 and parts[1] == "analytics":
@@ -695,6 +728,133 @@ class Handler(BaseHTTPRequestHandler):
                 "dailyNumber": row["daily_number"],
                 "roundId": row["round_id"],
             })
+
+    def daily_calendar_items(self, days):
+        labels = {
+            row["round_id"]: row["label"]
+            for row in DB.execute("SELECT round_id, label FROM puzzle_curation").fetchall()
+        }
+        reserved = set()
+        items = []
+        for offset in range(1, days + 1):
+            day_key = date_key_for_offset(offset)
+            daily_number = daily_number_for_key(day_key)
+            row = DB.execute(
+                "SELECT day_key, daily_number, round_id FROM daily_rounds WHERE day_key = ?",
+                (day_key,),
+            ).fetchone()
+            if row:
+                round_id = row["round_id"]
+                locked = True
+            else:
+                round_id = next_daily_round_id(daily_number, reserved)
+                locked = False
+            if round_id:
+                reserved.add(round_id)
+            items.append({
+                "dayKey": day_key,
+                "dailyNumber": daily_number,
+                "roundId": round_id,
+                "label": labels.get(round_id, "unmarked") if round_id else "",
+                "locked": locked,
+                "canEdit": day_key > today_key(),
+            })
+        return items
+
+    def handle_daily_admin(self, parts):
+        user = self.auth_user()
+        if not user or not user.get("isAdmin"):
+            self.send_error_json(403, "Daily calendar is private")
+            return
+
+        with DB_LOCK:
+            if self.command == "GET" and len(parts) == 3 and parts[2] == "calendar":
+                self.send_json(200, {"items": self.daily_calendar_items(8)})
+                return
+
+            if self.command != "POST" or len(parts) != 2:
+                self.send_error_json(404, "Not found")
+                return
+
+            body = self.read_json()
+            action = str(body.get("action") or "").strip().lower()
+            day_key = clean_day_key(body.get("dayKey"))
+            day_date = date_for_key(day_key)
+            if not day_key or not day_date or daily_number_for_key(day_key) < 1:
+                self.send_error_json(400, "Pick a valid future day")
+                return
+            if day_key <= today_key():
+                self.send_error_json(400, "Today and past dailies are locked")
+                return
+
+            if action == "lock":
+                existing = DB.execute(
+                    "SELECT day_key, daily_number, round_id FROM daily_rounds WHERE day_key = ?",
+                    (day_key,),
+                ).fetchone()
+                if existing:
+                    self.send_json(200, {"ok": True, "items": self.daily_calendar_items(8)})
+                    return
+
+                round_id = clean_id(body.get("roundId"), 80) or next_daily_round_id(daily_number_for_key(day_key))
+                if round_id not in round_ids():
+                    self.send_error_json(400, "No unused daily-worthy rounds are available")
+                    return
+                label_row = DB.execute(
+                    "SELECT label FROM puzzle_curation WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()
+                if label_row and label_row["label"] == "retired":
+                    self.send_error_json(400, "That round is retired")
+                    return
+                if round_id in used_daily_round_ids(except_day_key=day_key):
+                    self.send_error_json(400, "That round is already locked for another day")
+                    return
+
+                DB.execute(
+                    """
+                    INSERT INTO daily_rounds (day_key, daily_number, round_id, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (day_key, daily_number_for_key(day_key), round_id, now_iso()),
+                )
+                DB.commit()
+                self.send_json(200, {"ok": True, "items": self.daily_calendar_items(8)})
+                return
+
+            if action == "swap":
+                round_id = clean_id(body.get("roundId"), 80)
+                if round_id not in round_ids():
+                    self.send_error_json(400, "Pick a real round")
+                    return
+                label_row = DB.execute(
+                    "SELECT label FROM puzzle_curation WHERE round_id = ?",
+                    (round_id,),
+                ).fetchone()
+                if label_row and label_row["label"] == "retired":
+                    self.send_error_json(400, "That round is retired")
+                    return
+                used = used_daily_round_ids(except_day_key=day_key)
+                if round_id in used:
+                    self.send_error_json(400, "That round is already locked for another day")
+                    return
+
+                daily_number = daily_number_for_key(day_key)
+                timestamp = now_iso()
+                DB.execute(
+                    """
+                    INSERT INTO daily_rounds (day_key, daily_number, round_id, created_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(day_key)
+                    DO UPDATE SET round_id = excluded.round_id
+                    """,
+                    (day_key, daily_number, round_id, timestamp),
+                )
+                DB.commit()
+                self.send_json(200, {"ok": True, "items": self.daily_calendar_items(8)})
+                return
+
+        self.send_error_json(400, "Pick a daily calendar action")
 
     def handle_curation(self, parts):
         with DB_LOCK:

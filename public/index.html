@@ -523,11 +523,20 @@
   .modal select { appearance: none; cursor: pointer; }
   .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: var(--accent); }
   .archive-list, .analytics-list, .feedback-list, .curation-list { display: grid; gap: 8px; margin-bottom: 12px; }
-  .archive-item, .analytics-row, .feedback-row, .curation-row {
+  .archive-item, .analytics-row, .feedback-row, .curation-row, .calendar-row {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     background: #f4f6f5; border: none; border-radius: 12px; padding: 10px 12px;
     color: var(--ink); font: 700 13px "Trebuchet MS", sans-serif; text-align: left;
   }
+  .archive-item {
+    display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center;
+    width: 100%;
+  }
+  .archive-date { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .7px; }
+  .archive-topic { overflow: hidden; }
+  .archive-topic strong { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .archive-topic span { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .archive-score { color: var(--accent); font-size: 12px; white-space: nowrap; }
   .feedback-row { align-items: flex-start; display: grid; grid-template-columns: 1fr auto; }
   .feedback-row.closed { opacity: .56; }
   .feedback-meta { color: var(--muted); font-size: 11px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .8px; }
@@ -556,6 +565,23 @@
   .admin-toggle.closed .chev { transform: rotate(-90deg); }
   .feedback-list.collapsed { display: none; }
   .curation-panel.collapsed { display: none; }
+  .calendar-panel.collapsed { display: none; }
+  .calendar-list { display: grid; gap: 6px; margin-bottom: 10px; }
+  .calendar-row {
+    display: grid; grid-template-columns: 86px 1fr 116px; align-items: center;
+    padding: 8px; gap: 8px; font-size: 12px;
+  }
+  .calendar-date { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .8px; }
+  .calendar-topic strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .calendar-topic span { color: var(--muted); display: block; font-size: 10px; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .calendar-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .calendar-tools select { grid-column: 1 / -1; margin: 0; padding: 6px 7px; border-radius: 9px; font-size: 11px; text-align: left; }
+  .calendar-tools button {
+    border: none; border-radius: 999px; background: #fff; color: var(--accent);
+    cursor: pointer; font: 700 11px "Trebuchet MS", sans-serif; padding: 6px 7px;
+  }
+  .calendar-tools button.warn { color: #c46b42; }
+  .calendar-status { color: var(--muted); font-size: 11px; font-weight: 700; margin-bottom: 8px; min-height: 16px; }
   .curation-controls {
     display: grid; grid-template-columns: 1fr 132px auto; gap: 6px;
     margin-bottom: 8px; align-items: center;
@@ -638,6 +664,9 @@
     .stage { height: 225px; }
     .stage.reveal { height: 300px; }
     .secondary-actions { grid-template-columns: 1fr; }
+    .archive-item { grid-template-columns: 1fr auto; }
+    .archive-date { grid-column: 1 / -1; }
+    .calendar-row { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     .screen.on, .pin.pop, .chip, .pin.crowd.in, .crowd-cloud, .quip.in, .legend.in, .fbar,
@@ -1339,10 +1368,13 @@ function dailyLabelRank(label) {
   if (label === "funny") return 1;
   if (label === "too_easy" || label === "too_hard") return 3;
   if (label === "confusing" || label === "needs_review") return 4;
+  if (label === "retired") return 5;
   return 2;
 }
 function dailyScheduleIds() {
-  return ROUNDS.map(round => {
+  const eligible = ROUNDS.filter(round => publicCuration[round.id] !== "retired");
+  const source = eligible.length ? eligible : ROUNDS;
+  return source.map(round => {
     const label = publicCuration[round.id] || "unmarked";
     return { id: round.id, rank: dailyLabelRank(label), tie: stableHash("crowdline-daily:" + round.id) };
   }).sort((a, b) => (a.rank - b.rank) || (a.tie - b.tie)).map(item => item.id);
@@ -1877,6 +1909,26 @@ function archiveDateKey(daysAgo) {
   d.setDate(d.getDate() - daysAgo);
   return dateKey(d);
 }
+function formatArchiveDate(key) {
+  return dateFromKey(key).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+async function getArchiveResult(key) {
+  try {
+    const archived = await store.get("archive:" + key);
+    if (archived) return JSON.parse(archived.value);
+    const daily = await store.get("daily:" + key);
+    if (daily) return JSON.parse(daily.value);
+  } catch (e) {}
+  return null;
+}
+async function recordArchiveResult(score, squares) {
+  if (!activeDailyKey) return;
+  try {
+    const previous = await getArchiveResult(activeDailyKey);
+    const best = previous && Number(previous.score) > score ? previous : { score, squares, n: activeDailyNumber };
+    await store.set("archive:" + activeDailyKey, JSON.stringify(best));
+  } catch (e) {}
+}
 async function showArchiveModal() {
   sfx.open();
   if (!signedIn) {
@@ -1893,8 +1945,13 @@ async function showArchiveModal() {
     if (n < 1) continue;
     count++;
     const r = await dailyRoundForKey(key);
+    const result = await getArchiveResult(key);
+    const scoreHtml = result ? '<span class="archive-score">' + esc(result.score) + '/100</span>' : '<span class="archive-score">Not played</span>';
     html += '<button class="archive-item" data-key="' + key + '" type="button">' +
-      '<span>Daily #' + n + '</span><span>' + esc(r.a) + ' → ' + esc(r.b) + '</span></button>';
+      '<span class="archive-date">' + esc(formatArchiveDate(key)) + '<br/>#' + n + '</span>' +
+      '<span class="archive-topic"><strong>' + esc(r.a) + ' → ' + esc(r.b) + '</strong><span>Replay this daily for fun</span></span>' +
+      scoreHtml +
+      '</button>';
   }
   if (!count) html += '<div class="analytics-row"><span>No archive yet</span><span>Check back tomorrow</span></div>';
   html += '</div><button class="btn secondary" id="archiveClose">Back</button><div class="ad-slot ad-modal" id="archiveAd" aria-label="Advertisement"></div>';
@@ -2247,6 +2304,8 @@ async function submitRound() {
     await postToLeaderboard(score, dailySquares);
     trackEvent("daily_complete", activeDailyKey);
     refreshDailyTag();
+  } else if (mode === "archive") {
+    await recordArchiveResult(score, dailySquares);
   }
 }
 
@@ -2467,7 +2526,8 @@ const CURATION_LABELS = {
   too_easy: "Too easy",
   too_hard: "Too hard",
   funny: "Funny",
-  needs_review: "Needs review"
+  needs_review: "Needs review",
+  retired: "Retired"
 };
 let adminCuration = {}, adminCurationLoaded = false;
 
@@ -2613,6 +2673,10 @@ async function showAnalytics() {
     '<div class="big">📈</div><h3>Admin</h3><p>Privacy-friendly event counts and player feedback.</p>' +
     '<div class="admin-section"><h4>Analytics</h4><div class="analytics-list" id="analyticsBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div></div>' +
     '<div class="admin-section">' +
+      '<button class="admin-toggle" id="calendarToggle" type="button"><span>Daily calendar</span><span class="chev">▾</span></button>' +
+      '<div class="calendar-panel" id="calendarBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div>' +
+    '</div>' +
+    '<div class="admin-section">' +
       '<button class="admin-toggle" id="feedbackToggle" type="button"><span>Feedback</span><span class="chev">▾</span></button>' +
       '<div class="feedback-list" id="feedbackBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div>' +
     '</div>' +
@@ -2624,6 +2688,7 @@ async function showAnalytics() {
     "admin-modal"
   );
   $("analyticsClose").addEventListener("click", () => { sfx.click(); closeModal(); });
+  $("calendarToggle").addEventListener("click", toggleAdminCalendar);
   $("feedbackToggle").addEventListener("click", toggleAdminFeedback);
   $("curationToggle").addEventListener("click", toggleAdminCuration);
   try {
@@ -2635,6 +2700,7 @@ async function showAnalytics() {
   } catch (e) {
     $("analyticsBody").innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
   }
+  await loadAdminCalendar();
   await loadAdminFeedback();
   await loadAdminCuration();
 }
@@ -2688,6 +2754,121 @@ async function closeFeedbackItem(id) {
 function toggleAdminFeedback() {
   const body = $("feedbackBody");
   const toggle = $("feedbackToggle");
+  if (!body || !toggle) return;
+  const collapsed = body.classList.toggle("collapsed");
+  toggle.classList.toggle("closed", collapsed);
+}
+
+async function loadAdminCalendar() {
+  const body = $("calendarBody");
+  if (!body) return;
+  body.innerHTML = '<div class="analytics-row"><span>Loading calendar</span><span>...</span></div>';
+  try {
+    const data = await fetch("/api/daily-admin/calendar", { headers: store._headers(false) }).then(r => r.json());
+    renderAdminCalendar(data.items || []);
+  } catch (e) {
+    body.innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
+  }
+}
+
+function calendarRoundOptions(currentRoundId) {
+  const used = new Set();
+  document.querySelectorAll(".calendar-row").forEach(row => {
+    const id = row.getAttribute("data-round-id");
+    if (id && id !== currentRoundId) used.add(id);
+  });
+  return ROUNDS
+    .filter(round => publicCuration[round.id] !== "retired" && !used.has(round.id))
+    .map(round => '<option value="' + esc(round.id) + '"' + (round.id === currentRoundId ? " selected" : "") + '>' + esc(roundOptionLabel(round)) + '</option>')
+    .join("");
+}
+
+function renderAdminCalendar(items) {
+  const body = $("calendarBody");
+  if (!body) return;
+  if (!items.length) {
+    body.innerHTML = '<div class="analytics-row"><span>No future days</span><span>Add rounds</span></div>';
+    return;
+  }
+  body.innerHTML =
+    '<div class="calendar-status" id="calendarStatus"></div>' +
+    '<div class="calendar-list">' +
+      items.map(item => {
+        const round = roundById(item.roundId);
+        const lockText = item.locked ? "Locked" : "Preview";
+        return '<div class="calendar-row" data-day-key="' + esc(item.dayKey) + '" data-round-id="' + esc(item.roundId || "") + '">' +
+          '<div><div class="calendar-date">' + esc(formatArchiveDate(item.dayKey)) + '</div><div class="curation-tag">#' + item.dailyNumber + ' · ' + esc(lockText) + '</div></div>' +
+          '<div class="calendar-topic"><strong>' + esc(round.a) + ' → ' + esc(round.b) + '</strong><span>' + esc(item.roundId || "No round") + ' · ' + esc(curationLabel(item.label || "unmarked")) + '</span></div>' +
+          '<div class="calendar-tools">' +
+            '<select class="calendar-select" aria-label="Swap daily">' + calendarRoundOptions(item.roundId) + '</select>' +
+            '<button type="button" data-calendar-action="lock">' + (item.locked ? "Locked" : "Lock") + '</button>' +
+            '<button type="button" data-calendar-action="swap">Swap</button>' +
+            '<button class="warn" type="button" data-calendar-action="retire">Retire</button>' +
+          '</div>' +
+        '</div>';
+      }).join("") +
+    '</div>';
+  body.querySelectorAll("[data-calendar-action]").forEach(btn => {
+    btn.addEventListener("click", () => handleCalendarAction(btn));
+  });
+}
+
+async function handleCalendarAction(btn) {
+  const row = btn.closest(".calendar-row");
+  const status = $("calendarStatus");
+  if (!row || !status) return;
+  const action = btn.getAttribute("data-calendar-action");
+  const dayKey = row.getAttribute("data-day-key");
+  const currentRoundId = row.getAttribute("data-round-id");
+  const selected = row.querySelector(".calendar-select");
+  status.textContent = "Saving...";
+  btn.disabled = true;
+  try {
+    if (action === "retire") {
+      const res = await fetch("/api/curation", {
+        method: "POST",
+        headers: store._headers(true),
+        body: JSON.stringify({ roundId: currentRoundId, label: "retired", note: "Retired from daily calendar" })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        status.textContent = data.error || "Could not retire.";
+      } else {
+        adminCuration[currentRoundId] = { roundId: currentRoundId, label: "retired", note: "Retired from daily calendar", updatedAt: "" };
+        publicCuration[currentRoundId] = "retired";
+        status.textContent = "Retired " + currentRoundId + ".";
+        sfx.click();
+        renderCurationList();
+        await loadAdminCalendar();
+      }
+      return;
+    }
+
+    const roundId = action === "swap" ? (selected && selected.value) : currentRoundId;
+    const res = await fetch("/api/daily-admin", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ action, dayKey, roundId })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      status.textContent = data.error || "Could not save calendar.";
+      return;
+    }
+    delete dailyAssignmentCache[dayKey];
+    status.textContent = action === "swap" ? "Swapped." : "Locked.";
+    sfx.click();
+    renderAdminCalendar(data.items || []);
+  } catch (e) {
+    status.textContent = "Could not reach the server.";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function toggleAdminCalendar() {
+  const body = $("calendarBody");
+  const toggle = $("calendarToggle");
   if (!body || !toggle) return;
   const collapsed = body.classList.toggle("collapsed");
   toggle.classList.toggle("closed", collapsed);
