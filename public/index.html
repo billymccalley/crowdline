@@ -2125,7 +2125,7 @@ async function shareDaily() {
                sq + "  " + score + "/100\n" +
                (rank >= 0 ? "Rank #" + (rank + 1) + " today\n" : "") +
                (streak > 1 ? streak + "-day streak\n" : "") +
-               "playcrowdline.com";
+               "https://playcrowdline.com";
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {
     try {
