@@ -1156,6 +1156,7 @@ const DAILY_POOL = {
   practical: ["battery","notification","meeting","bookmark","coffee","sale","outfit_weather","game_button","loading","backup_plan","inconvenience","software_button","adult_task","airport","leftovers","umbrella_confidence","laundry_status","parking_spot","restaurant_menu","shoe_comfort","childhood_snack","pen_quality","coupon_energy","class_project","package_delivery"]
 };
 const DAILY_TYPES = ["funny", "hard", "weird", "practical"];
+let publicCuration = {}, publicCurationLoaded = false;
 
 const GRADES = [
   [90,"Certified Mind Reader 🧠"],
@@ -1187,11 +1188,40 @@ function dateFromKey(key) {
 }
 function dailyNumberForKey(key) { return dailyNumberForDate(dateFromKey(key)); }
 function roundById(id) { return ROUNDS.find(r => r.id === id) || ROUNDS[0]; }
+function stableHash(value) {
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function dailyLabelRank(label) {
+  if (label === "daily") return 0;
+  if (label === "funny") return 1;
+  if (label === "too_easy" || label === "too_hard") return 3;
+  if (label === "confusing" || label === "needs_review") return 4;
+  return 2;
+}
+function dailyScheduleIds() {
+  return ROUNDS.map(round => {
+    const label = publicCuration[round.id] || "unmarked";
+    return { id: round.id, rank: dailyLabelRank(label), tie: stableHash("crowdline-daily:" + round.id) };
+  }).sort((a, b) => (a.rank - b.rank) || (a.tie - b.tie)).map(item => item.id);
+}
 function dailyRound(n) {
   n = n || dailyNumber();
-  const type = DAILY_TYPES[((n - 1) % DAILY_TYPES.length + DAILY_TYPES.length) % DAILY_TYPES.length];
-  const pool = DAILY_POOL[type];
-  return roundById(pool[((Math.floor((n - 1) / DAILY_TYPES.length) * 7 + n) % pool.length + pool.length) % pool.length]);
+  const schedule = dailyScheduleIds();
+  return roundById(schedule[((n - 1) % schedule.length + schedule.length) % schedule.length]);
+}
+async function loadPublicCuration() {
+  if (publicCurationLoaded || store.mode !== "server") return;
+  try {
+    const data = await fetch("/api/curation/public", { headers: store._headers(false) }).then(r => r.json());
+    publicCuration = {};
+    (data.items || []).forEach(item => { publicCuration[item.roundId] = item.label; });
+    publicCurationLoaded = true;
+  } catch (e) {}
 }
 function sqEmoji(d) { return d <= 8 ? "🟩" : d <= 18 ? "🟨" : d <= 32 ? "🟧" : "🟥"; }
 function msUntilMidnight() {
@@ -1667,10 +1697,12 @@ function startQuick() {
   loadRound();
   show("round");
 }
-function startDaily() {
+async function startDaily() {
   sfx.menu();
   if (dailyDone) { showLockModal(); return; }
-  const begin = () => {
+  await loadPublicCuration();
+  const begin = async () => {
+    await loadPublicCuration();
     mode = "daily";
     activeDailyKey = todayKey();
     activeDailyNumber = dailyNumber();
@@ -1690,12 +1722,13 @@ function archiveDateKey(daysAgo) {
   d.setDate(d.getDate() - daysAgo);
   return dateKey(d);
 }
-function showArchiveModal() {
+async function showArchiveModal() {
   sfx.open();
   if (!signedIn) {
     requireSignIn("Sign in to play past daily lines without affecting today's streak.");
     return;
   }
+  await loadPublicCuration();
   let html = '<div class="big">🗂️</div><h3>Daily archive</h3>' +
     '<p>Past lines are just for fun. Today is the only one that counts for streaks and leaderboard.</p>' +
     '<div class="archive-list">';
@@ -1717,8 +1750,9 @@ function showArchiveModal() {
   });
   $("archiveClose").addEventListener("click", () => { sfx.click(); closeModal(); });
 }
-function startArchive(key) {
+async function startArchive(key) {
   sfx.menu();
+  await loadPublicCuration();
   closeModal();
   mode = "archive";
   activeDailyKey = key;
@@ -2250,8 +2284,12 @@ async function ensureAdminCuration() {
   if (!isAdmin || adminCurationLoaded) return;
   const data = await fetch("/api/curation", { headers: store._headers(false) }).then(r => r.json());
   adminCuration = {};
-  (data.items || []).forEach(item => { adminCuration[item.roundId] = item; });
+  (data.items || []).forEach(item => {
+    adminCuration[item.roundId] = item;
+    publicCuration[item.roundId] = item.label;
+  });
   adminCurationLoaded = true;
+  publicCurationLoaded = true;
 }
 
 function renderRoundCuration() {
@@ -2297,6 +2335,8 @@ async function saveCurrentRoundCuration() {
     }
     if (label === "unmarked") delete adminCuration[r.id];
     else adminCuration[r.id] = { roundId: r.id, label, note: "", updatedAt: "" };
+    if (label === "unmarked") delete publicCuration[r.id];
+    else publicCuration[r.id] = label;
     status.textContent = label === "unmarked" ? "Cleared." : "Saved as " + curationLabel(label) + ".";
     sfx.click();
   } catch (e) {
@@ -2305,6 +2345,7 @@ async function saveCurrentRoundCuration() {
 }
 
 async function shareDaily(sourceBtn) {
+  await loadPublicCuration();
   const n = activeDailyNumber || dailyNumber();
   const key = activeDailyKey || todayKey();
   const r = dailyRound(n);
@@ -2539,6 +2580,8 @@ async function saveCurationMark() {
     }
     if (label === "unmarked") delete adminCuration[roundId];
     else adminCuration[roundId] = { roundId, label, note, updatedAt: "" };
+    if (label === "unmarked") delete publicCuration[roundId];
+    else publicCuration[roundId] = label;
     status.textContent = label === "unmarked" ? "Cleared." : "Saved.";
     sfx.click();
     renderCurationList();
@@ -2596,7 +2639,7 @@ $("feedbackBtn").addEventListener("click", showFeedbackModal);
 $("soundBtn").addEventListener("click", toggleMute);
 document.addEventListener("pointerdown", () => { try { ac(); } catch (e) {} }, { once: true });
 loadMute();
-loadIdentity().then(refreshDailyTag);
+Promise.all([loadPublicCuration(), loadIdentity()]).then(refreshDailyTag);
 setInterval(refreshDailyTag, 60000);
 </script>
 </body>

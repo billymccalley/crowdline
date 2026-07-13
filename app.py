@@ -563,6 +563,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_curation(self, parts):
         with DB_LOCK:
+            if self.command == "GET" and len(parts) == 3 and parts[2] == "public":
+                rows = DB.execute(
+                    """
+                    SELECT round_id, label
+                    FROM puzzle_curation
+                    ORDER BY round_id ASC
+                    """
+                ).fetchall()
+                self.send_json(200, {
+                    "items": [
+                        {"roundId": row["round_id"], "label": row["label"]}
+                        for row in rows
+                    ]
+                })
+                return
+
             user = self.auth_user()
             if not user or not user.get("isAdmin"):
                 self.send_error_json(403, "Curation is private")
