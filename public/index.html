@@ -51,12 +51,12 @@
   #soundBtn:active { transform: scale(.94); }
 
   /* ---------- title ---------- */
-  #title { text-align: center; padding-top: 6vh; }
+  #title { text-align: center; padding-top: 5vh; }
   h1 { font-size: clamp(36px, 8vw, 54px); letter-spacing: -1.5px; line-height: 1.05; }
   h1 .a { color: var(--pole-a); } h1 .b { color: var(--pole-b); }
-  #title p { color: var(--muted); margin: 12px auto 24px; max-width: 340px; }
+  #title p { color: var(--muted); margin: 12px auto 20px; max-width: 340px; }
 
-  .demo { position: relative; width: min(300px, 76%); height: 56px; margin: 0 auto 26px; }
+  .demo { position: relative; width: min(300px, 76%); height: 56px; margin: 0 auto 20px; }
   .demo .bar {
     position: absolute; left: 0; right: 0; bottom: 10px;
     height: 8px; border-radius: 999px;
@@ -79,23 +79,43 @@
   .title-btns { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   .promise {
     display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
-    margin: -8px auto 22px; max-width: 430px;
+    margin: -4px auto 22px; max-width: 430px;
     color: var(--muted); font-size: 12px; font-weight: 700;
   }
   .promise span {
     background: #fff; border-radius: 999px; padding: 6px 10px;
     box-shadow: 0 1px 5px rgba(38,50,58,.08);
   }
-  .daily-tag { font-size: 12px; color: var(--muted); margin-top: 6px; max-width: 300px; overflow-wrap: anywhere; }
+  .daily-wrap {
+    width: min(360px, 100%);
+    background: #fff; border-radius: 18px; padding: 14px;
+    box-shadow: 0 6px 18px rgba(38,50,58,.08);
+  }
+  .daily-wrap .btn { width: min(200px, 100%); }
+  .daily-tag { font-size: 12px; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+  .secondary-actions {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    width: min(360px, 100%);
+  }
+  .secondary-actions .btn {
+    width: 100%; border-radius: 16px; padding: 12px 16px;
+    font-size: 14px;
+  }
+  .home-links {
+    display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-top: 4px;
+  }
   .stats-link {
-    margin-top: 16px; background: none; border: none; cursor: pointer;
+    margin-top: 0; background: none; border: none; cursor: pointer;
     font: 700 13px "Trebuchet MS", sans-serif; color: var(--muted);
     transition: color .15s;
   }
   .stats-link:hover { color: var(--ink); }
   .account-line {
     display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
-    margin-top: 4px; color: var(--muted); font-size: 12px;
+    width: min(360px, 100%);
+    border-top: 1px solid #e4eae7;
+    padding-top: 12px; margin-top: 0; color: var(--muted); font-size: 12px;
   }
   .account-line strong { color: var(--ink); }
   .account-line .stats-link { margin-top: 0; }
@@ -390,6 +410,7 @@
     .chip { font-size: 13px; padding: 8px 13px; }
     .stage { height: 225px; }
     .stage.reveal { height: 300px; }
+    .secondary-actions { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
     .screen.on, .pin.pop, .chip, .pin.crowd.in, .quip.in, .legend.in, .fbar,
@@ -421,15 +442,19 @@
       <span>new line at midnight</span>
     </div>
     <div class="title-btns">
-      <div>
+      <div class="daily-wrap">
         <button class="btn" id="dailyBtn">Today's Line</button>
         <div class="daily-tag" id="dailyTag"></div>
       </div>
-      <button class="btn secondary" id="startBtn">Practice — 5 rounds</button>
-      <button class="btn secondary" id="archiveBtn">Archive</button>
-      <button class="stats-link" id="statsBtn">📊 Stats</button>
-      <button class="stats-link" id="leaderboardBtn">Today's Leaderboard</button>
-      <button class="stats-link" id="analyticsBtn" style="display:none;">Analytics</button>
+      <div class="secondary-actions">
+        <button class="btn secondary" id="startBtn">Practice</button>
+        <button class="btn secondary" id="archiveBtn">Archive</button>
+      </div>
+      <div class="home-links">
+        <button class="stats-link" id="statsBtn">Stats</button>
+        <button class="stats-link" id="leaderboardBtn">Leaderboard</button>
+        <button class="stats-link" id="analyticsBtn" style="display:none;">Analytics</button>
+      </div>
       <div class="account-line">
         <span id="authStatus">Playing as guest</span>
         <button class="stats-link" id="authBtn">Sign in</button>
@@ -1876,8 +1901,8 @@ async function refreshDailyTag() {
     const r = await store.get("daily:" + todayKey());
     if (r) {
       dailyDone = JSON.parse(r.value);
-      tag.textContent = "🔒 done today — " + dailyDone.score + "/100 · new one in " + fmtCountdown(msUntilMidnight());
-      $("dailyBtn").textContent = "Daily ✓";
+      tag.textContent = "Done today · " + dailyDone.score + "/100 · next in " + fmtCountdown(msUntilMidnight());
+      $("dailyBtn").textContent = "Daily complete";
       return;
     }
   } catch (e) {}
