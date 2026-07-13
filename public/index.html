@@ -173,6 +173,25 @@
 
   .stage { position: relative; height: 210px; margin-top: 8px; transition: height .35s ease; }
   .stage.reveal { height: 290px; }
+  .endpoint-labels {
+    position: absolute; left: 0; right: 0; top: 174px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    pointer-events: none; transition: top .35s ease;
+  }
+  .stage.reveal .endpoint-labels { display: none; }
+  .endpoint {
+    display: grid; gap: 2px;
+    font-weight: 700; line-height: 1.1;
+  }
+  .endpoint.right { text-align: right; }
+  .endpoint span {
+    color: var(--muted); font-size: 10px; letter-spacing: 1.3px; text-transform: uppercase;
+  }
+  .endpoint strong {
+    color: var(--pole-a); font-size: clamp(13px, 3.2vw, 16px);
+    overflow-wrap: anywhere;
+  }
+  .endpoint.right strong { color: var(--pole-b); }
   .track {
     position: absolute; left: 0; right: 0; top: 150px;
     height: 14px; border-radius: 999px;
@@ -521,6 +540,10 @@
     <div class="axis" id="axisLabel"></div>
     <div class="sub" id="sub"></div>
     <div class="stage" id="stage">
+      <div class="endpoint-labels" aria-hidden="true">
+        <div class="endpoint"><span>Left side</span><strong id="leftEndpoint"></strong></div>
+        <div class="endpoint right"><span>Right side</span><strong id="rightEndpoint"></strong></div>
+      </div>
       <div class="track" id="track"></div>
       <div class="guide" id="guide"></div>
     </div>
@@ -726,7 +749,7 @@ function confetti(n) {
   setTimeout(() => wrap.remove(), 3400);
 }
 
-/* ================= DATA (56 lines) ================= */
+/* ================= DATA (150 rounds) ================= */
 const SEED_WEIGHT = 6;
 
 const ROUNDS = [
@@ -924,6 +947,112 @@ const ROUNDS = [
     items:[ ["buy toothpaste",8], ["return a package",42], ["call insurance",86], ["find a missing tax form",97] ] },
   { id:"mystery_noise", a:"Ignore it", b:"Investigate immediately",
     items:[ ["fridge hum",8], ["upstairs thump",55], ["glass breaking",92], ["smoke alarm chirp at 2am",97] ] },
+  { id:"umbrella_confidence", a:"Leave umbrella home", b:"Bring umbrella",
+    items:[ ["blue sky",4], ["cloudy but bright",28], ["40% chance of rain",66], ["distant thunder",95] ] },
+  { id:"laundry_status", a:"Still clean", b:"Definitely laundry",
+    items:[ ["worn for one hour",8], ["chair shirt",38], ["gym shirt after errands",82], ["mystery damp towel",98] ] },
+  { id:"parking_spot", a:"Bad parking spot", b:"Perfect parking spot",
+    items:[ ["six blocks away",8], ["under a dripping tree",30], ["near the entrance",82], ["shaded and free",96] ] },
+  { id:"group_chat", a:"Normal group chat", b:"Unrecoverable chaos",
+    items:[ ["dinner plans",20], ["someone says wait",55], ["20 unread messages",82], ["three side arguments at once",97] ] },
+  { id:"restaurant_menu", a:"Easy order", b:"Decision crisis",
+    items:[ ["burger place",8], ["taco truck",26], ["nine-page diner menu",78], ["build-your-own bowl with 60 toppings",96] ] },
+  { id:"phone_call", a:"Fine to answer", b:"Absolutely screening it",
+    items:[ ["best friend",5], ["doctor's office",45], ["unknown local number",75], ["No Caller ID",97] ] },
+  { id:"email_subject", a:"Safe email", b:"Heart rate spike",
+    items:[ ["newsletter",5], ["quick question",36], ["following up",68], ["urgent: action required",96] ] },
+  { id:"weather_app", a:"Trust the forecast", b:"Look outside instead",
+    items:[ ["sunny all week",12], ["light breeze",25], ["scattered showers",64], ["wintery mix",94] ] },
+  { id:"shoe_comfort", a:"All-day shoe", b:"Regret by noon",
+    items:[ ["broken-in sneakers",5], ["new loafers",48], ["cheap flip-flops",75], ["wedding heels on cobblestone",98] ] },
+  { id:"cereal_order", a:"Normal cereal behavior", b:"Unhinged cereal behavior",
+    items:[ ["cereal then milk",8], ["mixing two cereals",35], ["milk then cereal",70], ["orange juice instead of milk",98] ] },
+  { id:"museum_touch", a:"Fine to touch", b:"Do not touch",
+    items:[ ["gift shop magnet",5], ["interactive exhibit button",18], ["velvet rope",84], ["ancient vase",99] ] },
+  { id:"boardwalk_prize", a:"Worth playing for", b:"Obvious scam",
+    items:[ ["tiny sticker",20], ["plastic sunglasses",42], ["giant plush for one throw",86], ["win a game console for $2",98] ] },
+  { id:"gps_voice", a:"Helpful directions", b:"Actively betraying you",
+    items:[ ["turn right in 500 feet",8], ["slight left",45], ["make a legal U-turn",74], ["proceed to the route",96] ] },
+  { id:"pen_quality", a:"Trash pen", b:"Perfect pen",
+    items:[ ["dry hotel pen",5], ["chewed cap pen",22], ["smooth gel pen",86], ["the one pen everyone steals",96] ] },
+  { id:"candle_name", a:"Normal candle name", b:"Ridiculous candle name",
+    items:[ ["Vanilla Bean",8], ["Autumn Porch",35], ["Forest Whisper",62], ["CEO of Rain",96] ] },
+  { id:"childhood_snack", a:"Not nostalgic", b:"Instant childhood",
+    items:[ ["plain crackers",18], ["string cheese",38], ["fruit snacks",80], ["blue freezer pop",95] ] },
+  { id:"remote_control", a:"Easy remote", b:"Impossible remote",
+    items:[ ["volume and power",5], ["streaming remote",32], ["hotel TV remote",76], ["universal remote from 2007",97] ] },
+  { id:"wifi_name", a:"Normal Wi-Fi name", b:"Trying too hard",
+    items:[ ["HomeNetwork",8], ["PrettyFlyForAWiFi",55], ["FBI Surveillance Van",76], ["TellMyWiFiLoveHer",88] ] },
+  { id:"public_speaking", a:"No big deal", b:"Soul leaves body",
+    items:[ ["reading one sentence",18], ["introducing yourself",48], ["toast at a wedding",82], ["presentation with broken slides",98] ] },
+  { id:"tiny_spoon", a:"Wrong utensil", b:"Perfect utensil",
+    items:[ ["steak",4], ["soup",18], ["yogurt",70], ["ice cream cup",94] ] },
+  { id:"hotel_breakfast", a:"Skip it", b:"Wake up early for it",
+    items:[ ["sad apple",10], ["bagged muffin",35], ["waffle machine",82], ["omelet station",96] ] },
+  { id:"book_club", a:"Actually read it", b:"Definitely skimmed",
+    items:[ ["annotated copy",5], ["favorite quote ready",16], ["read the summary",74], ["watched the movie instead",95] ] },
+  { id:"shopping_cart", a:"Return cart", b:"Leave it and run",
+    items:[ ["cart corral beside you",5], ["pouring rain",48], ["kid melting down",72], ["cart has one square wheel",88] ] },
+  { id:"receipt_length", a:"Normal receipt", b:"Why is this so long",
+    items:[ ["coffee receipt",8], ["grocery receipt",38], ["pharmacy coupon receipt",88], ["one item plus 6 feet of paper",98] ] },
+  { id:"desk_drawer", a:"Organized drawer", b:"Junk dimension",
+    items:[ ["pens in a cup",6], ["paper clips loose",35], ["mystery keys",72], ["cables for devices you no longer own",96] ] },
+  { id:"vacation_photo", a:"Delete immediately", b:"Frame it",
+    items:[ ["blurry thumb photo",4], ["closed-eye group shot",28], ["sunset beach photo",82], ["everyone laughing naturally",96] ] },
+  { id:"stairs_count", a:"Tiny climb", b:"Mountaineering event",
+    items:[ ["three steps",5], ["one flight",24], ["fifth-floor walkup",82], ["stadium upper deck",96] ] },
+  { id:"water_temperature", a:"Bad water temp", b:"Perfect water temp",
+    items:[ ["lukewarm coffee water",8], ["room-temp pool",42], ["crisp fridge water",82], ["hot shower after cold day",97] ] },
+  { id:"compliment", a:"Awkward compliment", b:"Great compliment",
+    items:[ ["you look tired",5], ["nice shirt",55], ["you explained that well",84], ["you make this easier",96] ] },
+  { id:"haircut_risk", a:"Safe haircut", b:"High-stakes haircut",
+    items:[ ["tiny trim",10], ["new bangs",78], ["friend with scissors",90], ["day before big event",96] ] },
+  { id:"song_skip", a:"Let it play", b:"Skip instantly",
+    items:[ ["favorite chorus",5], ["long intro",35], ["holiday song in July",80], ["alarm sound in a playlist",97] ] },
+  { id:"microwave_leftovers", a:"Evenly heated", b:"Thermal roulette",
+    items:[ ["soup stirred twice",12], ["rice bowl",45], ["lasagna brick",78], ["burrito lava core",96] ] },
+  { id:"lost_item", a:"Easy to find", b:"Gone forever",
+    items:[ ["remote on couch",25], ["pen in backpack",48], ["earbud case",82], ["black sock in laundry",96] ] },
+  { id:"coupon_energy", a:"Not worth coupon", b:"Extreme coupon mode",
+    items:[ ["5 cents off",5], ["10% off",30], ["buy one get one",75], ["free entree no minimum",96] ] },
+  { id:"plant_care", a:"Impossible to kill", b:"Needs a plant nanny",
+    items:[ ["plastic plant",2], ["succulent",22], ["basil on a windowsill",68], ["fiddle-leaf fig",94] ] },
+  { id:"frozen_treat", a:"Bad frozen treat", b:"Elite frozen treat",
+    items:[ ["freezer-burned popsicle",6], ["plain ice cube",18], ["ice cream sandwich",82], ["soft-serve cone on vacation",96] ] },
+  { id:"quiz_question", a:"Easy question", b:"Teacher is testing us",
+    items:[ ["your name",2], ["multiple choice",24], ["explain your reasoning",78], ["show all work for one point",96] ] },
+  { id:"movie_length", a:"Perfect length", b:"Intermission needed",
+    items:[ ["88 minutes",8], ["two hours",42], ["two hours forty",80], ["three and a half hours",97] ] },
+  { id:"holiday_decoration", a:"Tasteful decoration", b:"Neighborhood landmark",
+    items:[ ["wreath on door",8], ["string lights",32], ["inflatable yard scene",80], ["music-synced roof show",96] ] },
+  { id:"tool_drawer", a:"Right tool", b:"Improvised chaos",
+    items:[ ["screwdriver",5], ["measuring tape",18], ["butter knife as screwdriver",82], ["shoe as hammer",96] ] },
+  { id:"class_project", a:"Dream partner", b:"Group project villain",
+    items:[ ["organized spreadsheet person",6], ["quiet but reliable",25], ["does slides at midnight",72], ["disappears until presentation day",98] ] },
+  { id:"garden_vegetable", a:"Easy garden win", b:"Botanical heartbreak",
+    items:[ ["mint",8], ["zucchini",25], ["tomatoes",58], ["watermelon in a tiny pot",96] ] },
+  { id:"package_delivery", a:"No stress", b:"Porch-watch mode",
+    items:[ ["dish soap refill",8], ["new shoes",42], ["concert tickets",80], ["signature required while you shower",98] ] },
+  { id:"subscription_cancel", a:"Easy cancel", b:"Hostage situation",
+    items:[ ["one-click cancel",5], ["email support",45], ["call during business hours",82], ["retention agent with a script",96] ] },
+  { id:"voice_memo", a:"Useful voice memo", b:"Too long to exist",
+    items:[ ["12 seconds",8], ["one minute",35], ["seven minutes",82], ["twenty minutes with wind noise",98] ] },
+  { id:"road_trip_stop", a:"Skip the stop", b:"Mandatory stop",
+    items:[ ["generic gas station",20], ["scenic overlook",72], ["clean bathrooms sign",84], ["world's largest anything",96] ] },
+  { id:"banana_ripeness", a:"Too green", b:"Too far gone",
+    items:[ ["bright green",5], ["yellow with green tips",35], ["one brown spot",55], ["banana bread only",95] ] },
+  { id:"sandwich_cut", a:"Wrong cut", b:"Correct cut",
+    items:[ ["no cut",25], ["rectangles",48], ["triangles",78], ["tiny tea sandwiches",90] ] },
+  { id:"blanket_weight", a:"Too light", b:"Crushing comfort",
+    items:[ ["thin sheet",10], ["throw blanket",35], ["weighted blanket",82], ["entire laundry pile",96] ] },
+  { id:"kitchen_gadget", a:"Actually useful", b:"Drawer clutter",
+    items:[ ["chef's knife",5], ["can opener",18], ["avocado slicer",72], ["banana-shaped banana case",96] ] },
+  { id:"calendar_invite", a:"Accept instantly", b:"Dread event",
+    items:[ ["birthday dinner",12], ["team lunch",45], ["optional webinar",78], ["7am mandatory meeting",98] ] },
+  { id:"garage_sale", a:"Treasure", b:"Someone else's problem",
+    items:[ ["solid wood chair",18], ["box of records",45], ["broken printer",86], ["mystery exercise machine",95] ] },
+  { id:"dream_logic", a:"Makes sense", b:"Dream nonsense",
+    items:[ ["late for school",30], ["teeth falling out",65], ["flying over your town",82], ["your house has a secret mall",97] ] },
 ];
 
 const QUIPS = {
@@ -933,10 +1062,10 @@ const QUIPS = {
 };
 
 const DAILY_POOL = {
-  funny: ["pizza_topping","superhero_name","party","hotdog","soup","pet","gift","breakfast","modern_art","movie_title","icebreaker","midnight_snack","office_fridge","snack_mess"],
-  hard: ["alive","bignum","odds","soonness","quantity","apology","fib","time_estimate","reply_speed","math_problem","recipe","password","app_permission","fake_natural"],
-  weird: ["alien","magic","menace","ancient","sus","browser_tabs","text_punctuation","hallway","mystery_noise","map_icon","souvenir","elevator","username"],
-  practical: ["battery","notification","meeting","bookmark","coffee","sale","outfit_weather","game_button","loading","backup_plan","inconvenience","software_button","adult_task","airport","leftovers"]
+  funny: ["pizza_topping","superhero_name","party","hotdog","soup","pet","gift","breakfast","modern_art","movie_title","icebreaker","midnight_snack","office_fridge","snack_mess","cereal_order","candle_name","wifi_name","tiny_spoon","hotel_breakfast","boardwalk_prize","receipt_length","compliment","song_skip","frozen_treat","holiday_decoration","road_trip_stop","sandwich_cut","garage_sale","dream_logic"],
+  hard: ["alive","bignum","odds","soonness","quantity","apology","fib","time_estimate","reply_speed","math_problem","recipe","password","app_permission","fake_natural","weather_app","phone_call","email_subject","museum_touch","book_club","shopping_cart","public_speaking","haircut_risk","microwave_leftovers","quiz_question","movie_length","subscription_cancel","voice_memo","banana_ripeness","calendar_invite"],
+  weird: ["alien","magic","menace","ancient","sus","browser_tabs","text_punctuation","hallway","mystery_noise","map_icon","souvenir","elevator","username","group_chat","gps_voice","remote_control","desk_drawer","vacation_photo","stairs_count","water_temperature","lost_item","plant_care","tool_drawer","garden_vegetable","blanket_weight","kitchen_gadget"],
+  practical: ["battery","notification","meeting","bookmark","coffee","sale","outfit_weather","game_button","loading","backup_plan","inconvenience","software_button","adult_task","airport","leftovers","umbrella_confidence","laundry_status","parking_spot","restaurant_menu","shoe_comfort","childhood_snack","pen_quality","coupon_energy","class_project","package_delivery"]
 };
 const DAILY_TYPES = ["funny", "hard", "weird", "practical"];
 
@@ -1527,8 +1656,10 @@ function loadRound() {
   renderProgress();
   $("axisLabel").innerHTML =
     '<span class="a">' + esc(r.a) + '</span><span class="arrow">→</span><span class="b">' + esc(r.b) + '</span>';
+  $("leftEndpoint").textContent = r.a;
+  $("rightEndpoint").textContent = r.b;
   $("sub").style.opacity = 1;
-  $("sub").textContent = "place each item on the line — drag again to adjust";
+  $("sub").textContent = "Drag each item onto the line. Far left = " + r.a + "; far right = " + r.b + ".";
   $("verdict").innerHTML = "";
   $("submitBtn").style.display = "";
   $("submitBtn").disabled = true;
@@ -1672,7 +1803,7 @@ function updateSubmit() {
   const btn = $("submitBtn");
   if (done && btn.disabled) { btn.disabled = false; btn.classList.add("appear"); }
   else if (!done) { btn.disabled = true; btn.classList.remove("appear"); }
-  setSub(done ? "happy with that? lock it in." : "drag each item onto the bar — drag again to adjust");
+  setSub(done ? "Happy with the order? Lock it in." : "Drag each item onto the line. Left and right labels show the scale.");
 }
 
 /* ================= REVEAL ================= */
