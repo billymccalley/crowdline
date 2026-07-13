@@ -349,6 +349,11 @@
     animation: fade .3s ease both;
   }
   .lb-row.me { outline: 2px solid var(--accent); }
+  .lb-row.pinned {
+    background: #eef8f3;
+    box-shadow: 0 4px 14px rgba(55,165,120,.16);
+    margin-bottom: 12px;
+  }
   .lb-row .rank { font-weight: 700; color: var(--muted); width: 24px; font-size: 13px; }
   .lb-row .nm { font-weight: 700; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .lb-row .sq { font-size: 12px; letter-spacing: 1px; }
@@ -2050,31 +2055,28 @@ async function renderLeaderboard(board) {
     el.innerHTML = '<h3>Today\'s leaderboard</h3><div class="lb-note">You\'re the first to finish today — top of the board by default 👑</div>';
     return;
   }
-  const top = board.slice(0, 10);
+  const myRank = board.findIndex(e2 => e2.pid === playerId);
+  const top = board.slice(0, 25);
   let html = '<h3>Today\'s leaderboard</h3>';
-  top.forEach((e2, i) => {
+
+  function leaderboardRow(e2, i, pinned) {
     const me = e2.pid === playerId ? " me" : "";
     const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + ".";
     const shownName = publicDisplayName(e2.n) || "Player";
-    html += '<div class="lb-row' + me + '" style="animation-delay:' + (i * .05) + 's">' +
+    return '<div class="lb-row' + me + (pinned ? " pinned" : "") + '" style="animation-delay:' + (i * .05) + 's">' +
       '<span class="rank">' + medal + '</span>' +
       '<span class="nm">' + esc(shownName) + '</span>' +
       '<span class="sq">' + esc(e2.q) + '</span>' +
       '<span class="sc" style="color:' + scoreColor(e2.s) + '">' + e2.s + '</span>' +
       '<button class="report-btn" type="button" title="Report name" data-report="' + esc(shownName) + '">!</button>' +
       '</div>';
-  });
-  const myRank = board.findIndex(e2 => e2.pid === playerId);
-  if (myRank >= 10) {
-    const mine = board[myRank];
-    const shownName = publicDisplayName(mine.n) || "Player";
-    html += '<div class="lb-row me"><span class="rank">' + (myRank + 1) + '.</span>' +
-      '<span class="nm">' + esc(shownName) + '</span>' +
-      '<span class="sq">' + esc(mine.q) + '</span>' +
-      '<span class="sc" style="color:' + scoreColor(mine.s) + '">' + mine.s + '</span>' +
-      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(shownName) + '">!</button></div>';
   }
-  html += '<div class="lb-note">' + board.length + ' player' + (board.length === 1 ? "" : "s") + ' so far today · names are public</div>';
+
+  if (myRank >= 0) {
+    html += '<div class="lb-note">Your result</div>' + leaderboardRow(board[myRank], myRank, true);
+  }
+  html += top.map((e2, i) => leaderboardRow(e2, i, false)).join("");
+  html += '<div class="lb-note">Top 25 shown' + (myRank >= 25 ? ' · you are rank #' + (myRank + 1) : '') + ' · names are public</div>';
   el.innerHTML = html;
   el.querySelectorAll(".report-btn").forEach(btn => btn.addEventListener("click", () => reportName(btn.getAttribute("data-report"))));
 }

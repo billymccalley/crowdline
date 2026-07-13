@@ -913,7 +913,7 @@ class Handler(BaseHTTPRequestHandler):
             FROM daily_results
             WHERE day_key = ?
             ORDER BY score DESC, created_at ASC
-            LIMIT 50
+            LIMIT 250
             """,
             (day_key,),
         ).fetchall()
@@ -958,7 +958,7 @@ async function load(){
   const el=document.getElementById("board");
   if(!board.length){el.className="empty";el.textContent="No finishes yet today.";return}
   el.className="";
-  el.innerHTML=board.slice(0,50).map((e,i)=>'<div class="row"><span class="rank">'+(i+1)+'.</span><span class="name">'+esc(e.n)+'</span><span class="sq">'+esc(e.q)+'</span><span class="score" style="color:'+color(e.s)+'">'+e.s+'</span></div>').join("");
+  el.innerHTML=board.slice(0,25).map((e,i)=>'<div class="row"><span class="rank">'+(i+1)+'.</span><span class="name">'+esc(e.n)+'</span><span class="sq">'+esc(e.q)+'</span><span class="score" style="color:'+color(e.s)+'">'+e.s+'</span></div>').join("");
 }
 load();
 </script>
