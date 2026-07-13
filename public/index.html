@@ -434,6 +434,7 @@
     animation: btnIn .3s var(--ease-pop);
   }
   .modal.admin-modal, .modal.feedback-modal { max-width: 560px; }
+  .modal.admin-modal { max-height: 88vh; overflow-y: auto; }
   .modal .big { font-size: 38px; margin-bottom: 8px; }
   .modal h3 { font-size: 19px; margin-bottom: 8px; }
   .modal p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
@@ -482,11 +483,41 @@
   .admin-toggle.closed .chev { transform: rotate(-90deg); }
   .feedback-list.collapsed { display: none; }
   .curation-panel.collapsed { display: none; }
-  .curation-controls { display: grid; gap: 8px; margin-bottom: 12px; }
-  .curation-controls select, .curation-controls input { margin-bottom: 0; }
-  .curation-row { display: block; }
-  .curation-round { color: var(--ink); overflow-wrap: anywhere; }
-  .curation-note { color: var(--muted); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  .curation-controls {
+    display: grid; grid-template-columns: 1fr 132px auto; gap: 6px;
+    margin-bottom: 8px; align-items: center;
+  }
+  .curation-controls select, .curation-controls input {
+    margin-bottom: 0; padding: 8px 9px; border-radius: 10px;
+    font-size: 12px; text-align: left;
+  }
+  .curation-controls input { grid-column: 1 / -1; }
+  .curation-controls .btn {
+    padding: 8px 12px; font-size: 12px; white-space: nowrap;
+  }
+  .curation-controls .auth-error {
+    grid-column: 2 / -1; margin: 0; min-height: 0; align-self: center;
+  }
+  .curation-count {
+    color: var(--muted); font-size: 11px; font-weight: 700; margin: 2px 0 6px;
+  }
+  .curation-list {
+    max-height: 310px; overflow-y: auto; padding-right: 2px;
+    gap: 4px; margin-bottom: 8px;
+  }
+  .curation-row {
+    display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: center;
+    padding: 6px 8px; border-radius: 9px; font-size: 12px;
+  }
+  .curation-tag {
+    color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .7px;
+    white-space: nowrap;
+  }
+  .curation-round { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .curation-note {
+    grid-column: 2; color: var(--muted); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .bottom-meta {
     position: fixed; left: 0; right: 0; bottom: 10px; z-index: 30;
     display: flex; justify-content: center; align-items: center; gap: 12px;
@@ -2451,6 +2482,7 @@ function renderCurationPanel() {
       '<button class="btn" id="curationSave">Save mark</button>' +
       '<div class="auth-error" id="curationStatus"></div>' +
     '</div>' +
+    '<div class="curation-count" id="curationCount"></div>' +
     '<div class="curation-list" id="curationList"></div>';
   $("curationRound").addEventListener("change", syncCurationFields);
   $("curationSave").addEventListener("click", saveCurationMark);
@@ -2470,17 +2502,19 @@ function syncCurationFields() {
 
 function renderCurationList() {
   const list = $("curationList");
+  const count = $("curationCount");
   if (!list) return;
-  const items = Object.values(adminCuration);
+  const items = Object.values(adminCuration).sort((a, b) => a.roundId.localeCompare(b.roundId));
+  if (count) count.textContent = items.length + " / " + ROUNDS.length + " rounds marked";
   if (!items.length) {
     list.innerHTML = '<div class="analytics-row"><span>No marks yet</span><span>Start tagging</span></div>';
     return;
   }
-  list.innerHTML = items.slice(0, 24).map(item => {
+  list.innerHTML = items.map(item => {
     const round = roundById(item.roundId);
     return '<div class="curation-row">' +
-      '<div class="feedback-meta">' + esc(curationLabel(item.label)) + ' · ' + esc(item.roundId) + '</div>' +
-      '<div class="curation-round">' + esc(round.a + " / " + round.b) + '</div>' +
+      '<div class="curation-tag">' + esc(curationLabel(item.label)) + '</div>' +
+      '<div class="curation-round">' + esc(item.roundId + " - " + round.a + " / " + round.b) + '</div>' +
       (item.note ? '<div class="curation-note">' + esc(item.note) + '</div>' : '') +
     '</div>';
   }).join("");
