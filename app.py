@@ -36,16 +36,46 @@ FEEDBACK_CATEGORIES = {"bug", "confusing", "idea", "content", "account", "other"
 ADMIN_NAMES = {"billy"}
 BLOCKED_NAME_PARTS = {
     "fuck",
+    "fucker",
+    "fuk",
     "shit",
     "bitch",
     "cunt",
     "nigger",
+    "nigga",
     "faggot",
+    "fagot",
     "slut",
     "whore",
     "kike",
     "retard",
+    "chink",
+    "gook",
+    "spic",
+    "wetback",
+    "coon",
+    "beaner",
+    "raghead",
+    "towelhead",
+    "tranny",
+    "dyke",
+    "hitler",
+    "nazi",
+    "kkk",
 }
+NAME_FILTER_TRANS = str.maketrans({
+    "0": "o",
+    "1": "i",
+    "!": "i",
+    "3": "e",
+    "4": "a",
+    "@": "a",
+    "5": "s",
+    "$": "s",
+    "7": "t",
+    "+": "t",
+    "8": "b",
+})
 DB_LOCK = threading.RLock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
@@ -185,9 +215,19 @@ def clean_player_name(value):
     return text.strip()[:14] or "Player"
 
 
+def normalized_name(value):
+    text = str(value or "").lower().translate(NAME_FILTER_TRANS)
+    return re.sub(r"[^a-z0-9]", "", text)
+
+
 def is_blocked_name(value):
-    compact = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    compact = normalized_name(value)
     return any(part in compact for part in BLOCKED_NAME_PARTS)
+
+
+def public_player_name(value):
+    text = clean_player_name(value)
+    return "Player" if is_blocked_name(text) else text
 
 
 def clean_login_name(value):
@@ -757,13 +797,13 @@ class Handler(BaseHTTPRequestHandler):
             user = self.auth_user()
             if user:
                 pid = user["pid"]
-                body["name"] = user["name"]
+                body["name"] = public_player_name(user["name"])
             score = clean_score(body.get("score"))
             if not pid or score is None:
                 self.send_error_json(400, "Invalid leaderboard entry")
                 return
 
-            name = clean_player_name(body.get("name"))
+            name = public_player_name(body.get("name")) if user else "Guest"
             squares = clean_squares(body.get("squares"))
             timestamp = now_iso()
             DB.execute(
@@ -800,7 +840,7 @@ class Handler(BaseHTTPRequestHandler):
             (day_key,),
         ).fetchall()
         return [
-            {"pid": row["player_id"], "n": row["name"], "s": row["score"], "q": row["squares"]}
+            {"pid": row["player_id"], "n": public_player_name(row["name"]), "s": row["score"], "q": row["squares"]}
             for row in rows
         ]
 

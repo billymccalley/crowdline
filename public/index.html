@@ -996,7 +996,7 @@ let gameRounds = [], roundIdx = 0, scores = [], placed = {}, revealed = false;
 let dailySquares = "", dailyDone = null;
 let dragging = false;
 let playerName = "", playerId = "";
-let authToken = "", signedIn = false, isAdmin = false;
+let authToken = "", signedIn = false, isAdmin = false, pendingAuthAction = null;
 let activeDailyKey = "", activeDailyNumber = 0, lastRoundResult = null;
 let countdownTimer = null;
 
@@ -1060,7 +1060,7 @@ async function postToLeaderboard(score, squares) {
       const res = await fetch("/api/leaderboard/" + encodeURIComponent(key), {
         method: "POST",
         headers: store._headers(true),
-        body: JSON.stringify({ pid: playerId, name: playerName, score, squares, dailyNumber: num })
+        body: JSON.stringify({ pid: playerId, name: signedIn ? (publicDisplayName(playerName) || "Player") : "Guest", score, squares, dailyNumber: num })
       });
       if (res.ok) return;
     } catch (e) {}
@@ -1069,7 +1069,7 @@ async function postToLeaderboard(score, squares) {
     const key = todayKey();
     const board = await getLeaderboard(key);
     if (!board.some(e => e.pid === playerId)) {
-      board.push({ pid: playerId, n: playerName, s: score, q: squares });
+      board.push({ pid: playerId, n: signedIn ? (publicDisplayName(playerName) || "Player") : "Guest", s: score, q: squares });
       board.sort((a, b) => b.s - a.s);
       await store.set("lb:" + key, JSON.stringify(board.slice(0, 50)), true);
     }
@@ -1115,8 +1115,26 @@ async function loadIdentity() {
   } catch (e) {}
   renderAuthStatus();
 }
+const PUBLIC_NAME_BLOCKLIST = [
+  "fuck", "fucker", "fuk", "shit", "bitch", "cunt", "nigger", "nigga",
+  "faggot", "fagot", "slut", "whore", "kike", "retard", "chink", "gook",
+  "spic", "wetback", "coon", "beaner", "raghead", "towelhead", "tranny",
+  "dyke", "hitler", "nazi", "kkk"
+];
+const NAME_FILTER_CHARS = { "0":"o", "1":"i", "!":"i", "3":"e", "4":"a", "@":"a", "5":"s", "$":"s", "7":"t", "+":"t", "8":"b" };
 function cleanName(s) {
   return s.replace(/[<>&"']/g, "").trim().slice(0, 14);
+}
+function normalizedPublicName(s) {
+  return String(s || "").toLowerCase().replace(/[0134578!@$+]/g, ch => NAME_FILTER_CHARS[ch] || ch).replace(/[^a-z0-9]/g, "");
+}
+function isBlockedPublicName(s) {
+  const compact = normalizedPublicName(s);
+  return PUBLIC_NAME_BLOCKLIST.some(part => compact.includes(part));
+}
+function publicDisplayName(s) {
+  const name = cleanName(s);
+  return isBlockedPublicName(name) ? "Player" : name;
 }
 function trackEvent(event, key) {
   if (store.mode !== "server") return;
@@ -1252,7 +1270,7 @@ function showNameModal(onDone) {
   if (playerName) input.value = playerName;
   setTimeout(() => input.focus(), 100);
   const go = async () => {
-    let n = cleanName(input.value);
+    let n = publicDisplayName(input.value);
     if (!n) n = "Player" + playerId.slice(1, 5).toUpperCase();
     playerName = n;
     try { await store.set("pref:name", n); } catch (e) {}
@@ -1346,6 +1364,9 @@ async function submitAuth(action) {
     closeModal();
     renderAuthStatus();
     refreshDailyTag();
+    const next = pendingAuthAction;
+    pendingAuthAction = null;
+    if (next) next();
   } catch (e) {
     err.textContent = "Could not reach the server.";
     btn.disabled = false;
@@ -1375,7 +1396,7 @@ async function signOut() {
 
 function toggleAuth() {
   if (signedIn) signOut();
-  else { sfx.open(); showAuthModal("login"); }
+  else { pendingAuthAction = null; sfx.open(); showAuthModal("login"); }
 }
 
 function hasGuestPracticeRun() {
@@ -1386,6 +1407,24 @@ function markGuestPracticeRun() {
 }
 function requireSignIn(reason) {
   showAuthModal("signup", reason);
+}
+
+function showGuestLeaderboardPrompt(onDone) {
+  sfx.open();
+  openModal(
+    '<div class="big">🏁</div>' +
+    '<h3>Leaderboard names need login</h3>' +
+    '<p>Create an account or sign in to show your name on today\'s leaderboard. Guests can still play, but show up as Guest.</p>' +
+    '<div class="auth-actions">' +
+      '<button class="btn" id="dailySignup">Create account</button>' +
+      '<button class="btn secondary" id="dailyLogin">Sign in</button>' +
+      '<button class="small-link" id="dailyGuest">Play as guest</button>' +
+    '</div>'
+  );
+  const reason = "Sign in to put your name on today's leaderboard and keep your streak.";
+  $("dailySignup").addEventListener("click", () => { pendingAuthAction = onDone; sfx.click(); showAuthModal("signup", reason); });
+  $("dailyLogin").addEventListener("click", () => { pendingAuthAction = onDone; sfx.click(); showAuthModal("login", reason); });
+  $("dailyGuest").addEventListener("click", () => { pendingAuthAction = null; sfx.click(); closeModal(); onDone(); });
 }
 
 /* ================= GAME FLOW ================= */
@@ -1418,7 +1457,7 @@ function startDaily() {
     loadRound();
     show("round");
   };
-  if (!playerName) showNameModal(begin);
+  if (!signedIn) showGuestLeaderboardPrompt(begin);
   else begin();
 }
 
@@ -1833,22 +1872,24 @@ async function renderLeaderboard(board) {
   top.forEach((e2, i) => {
     const me = e2.pid === playerId ? " me" : "";
     const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + ".";
+    const shownName = publicDisplayName(e2.n) || "Player";
     html += '<div class="lb-row' + me + '" style="animation-delay:' + (i * .05) + 's">' +
       '<span class="rank">' + medal + '</span>' +
-      '<span class="nm">' + esc(e2.n) + '</span>' +
+      '<span class="nm">' + esc(shownName) + '</span>' +
       '<span class="sq">' + esc(e2.q) + '</span>' +
       '<span class="sc" style="color:' + scoreColor(e2.s) + '">' + e2.s + '</span>' +
-      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(e2.n) + '">!</button>' +
+      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(shownName) + '">!</button>' +
       '</div>';
   });
   const myRank = board.findIndex(e2 => e2.pid === playerId);
   if (myRank >= 10) {
     const mine = board[myRank];
+    const shownName = publicDisplayName(mine.n) || "Player";
     html += '<div class="lb-row me"><span class="rank">' + (myRank + 1) + '.</span>' +
-      '<span class="nm">' + esc(mine.n) + '</span>' +
+      '<span class="nm">' + esc(shownName) + '</span>' +
       '<span class="sq">' + esc(mine.q) + '</span>' +
       '<span class="sc" style="color:' + scoreColor(mine.s) + '">' + mine.s + '</span>' +
-      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(mine.n) + '">!</button></div>';
+      '<button class="report-btn" type="button" title="Report name" data-report="' + esc(shownName) + '">!</button></div>';
   }
   html += '<div class="lb-note">' + board.length + ' player' + (board.length === 1 ? "" : "s") + ' so far today · names are public</div>';
   el.innerHTML = html;
