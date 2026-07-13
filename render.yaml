@@ -7,6 +7,8 @@ services:
     startCommand: python app.py
     healthCheckPath: /api/health
     autoDeployTrigger: commit
+    domains:
+      - playcrowdline.com
     disk:
       name: crowdline-data
       mountPath: /var/data
@@ -16,6 +18,8 @@ services:
         value: /var/data
       - key: DATABASE_PATH
         value: /var/data/crowdline.sqlite3
+      - key: SITE_URL
+        value: https://playcrowdline.com
       - key: RATE_LIMIT_PER_MINUTE
         value: "120"
       - key: WRITE_LIMIT_PER_MINUTE

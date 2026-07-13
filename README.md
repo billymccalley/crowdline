@@ -35,6 +35,22 @@ In Render, create a new Blueprint from the repo and let it use `render.yaml`. Th
 
 Render's persistent disk keeps the SQLite database across deploys. For a much larger public launch, the next database step would be Render Postgres.
 
+The Blueprint also registers `playcrowdline.com` as the custom domain. Keep the Render `onrender.com` subdomain enabled until DNS and TLS are verified.
+
+## Domain setup
+
+In Render, open the `crowdline` service and check Settings -> Custom Domains. The Blueprint should add `playcrowdline.com`. If it does not appear, add it manually.
+
+At your DNS provider:
+
+- Remove any `AAAA` records for `playcrowdline.com`.
+- For the root domain, add an `ANAME` or `ALIAS` record pointing to your Render subdomain if your provider supports it.
+- If your DNS provider does not support `ANAME` or `ALIAS`, add an `A` record for `@` pointing to `216.24.57.1`.
+- If your DNS provider is Cloudflare, use a flattened `CNAME` for the root instead of an `A` record.
+- Render automatically adds `www.playcrowdline.com` when the root domain is configured and redirects it to the root domain.
+
+Then return to Render's Custom Domains section and click Verify. Render will issue and renew TLS automatically after verification.
+
 The Render disk is the app's external storage layer:
 
 - `DATA_DIR=/var/data`
