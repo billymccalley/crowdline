@@ -553,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
                     """
                     SELECT id, user_id, player_name, category, message, page, status, created_at, closed_at
                     FROM feedback
-                    ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, created_at DESC
+                    ORDER BY created_at DESC
                     LIMIT 100
                     """
                 ).fetchall()
@@ -582,12 +582,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_error_json(400, "Invalid feedback id")
                     return
                 DB.execute(
-                    """
-                    UPDATE feedback
-                    SET status = 'closed', closed_at = ?
-                    WHERE id = ? AND status != 'closed'
-                    """,
-                    (now_iso(), feedback_id),
+                    "DELETE FROM feedback WHERE id = ?",
+                    (feedback_id,),
                 )
                 DB.commit()
                 self.send_json(200, {"ok": True})

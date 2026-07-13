@@ -403,10 +403,19 @@
   .archive-item:hover { filter: brightness(.98); }
   .analytics-row span:last-child { color: var(--accent); }
   .admin-section { text-align: left; margin-top: 18px; }
-  .admin-section h4 {
+  .admin-section h4, .admin-toggle {
     color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
     margin-bottom: 8px;
   }
+  .admin-toggle {
+    width: 100%; border: none; background: transparent; cursor: pointer; padding: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: "Trebuchet MS", sans-serif; font-weight: 700; text-align: left;
+  }
+  .admin-toggle:hover { color: var(--ink); }
+  .admin-toggle .chev { font-size: 13px; transition: transform .15s ease; }
+  .admin-toggle.closed .chev { transform: rotate(-90deg); }
+  .feedback-list.collapsed { display: none; }
   .bottom-meta {
     position: fixed; left: 0; right: 0; bottom: 10px; z-index: 30;
     display: flex; justify-content: center; align-items: center; gap: 12px;
@@ -1909,7 +1918,7 @@ async function submitFeedback() {
       btn.disabled = false;
       return;
     }
-    sfx.success();
+    sfx.fanfare();
     openModal('<div class="big">✓</div><h3>Sent</h3><p>Thanks. This goes into Billy\'s admin panel.</p><button class="btn" id="feedbackOk">OK</button>');
     $("feedbackOk").addEventListener("click", () => { sfx.click(); closeModal(); });
   } catch (e) {
@@ -1998,11 +2007,15 @@ async function showAnalytics() {
   openModal(
     '<div class="big">📈</div><h3>Admin</h3><p>Privacy-friendly event counts and player feedback.</p>' +
     '<div class="admin-section"><h4>Analytics</h4><div class="analytics-list" id="analyticsBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div></div>' +
-    '<div class="admin-section"><h4>Feedback</h4><div class="feedback-list" id="feedbackBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div></div>' +
+    '<div class="admin-section">' +
+      '<button class="admin-toggle" id="feedbackToggle" type="button"><span>Feedback</span><span class="chev">▾</span></button>' +
+      '<div class="feedback-list" id="feedbackBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div>' +
+    '</div>' +
     '<button class="btn secondary" id="analyticsClose">Close</button>',
     "admin-modal"
   );
   $("analyticsClose").addEventListener("click", () => { sfx.click(); closeModal(); });
+  $("feedbackToggle").addEventListener("click", toggleAdminFeedback);
   try {
     const data = await fetch("/api/analytics/summary", { headers: store._headers(false) }).then(r => r.json());
     const order = ["daily_start", "daily_complete", "practice_start", "signup", "share_copied"];
@@ -2026,15 +2039,14 @@ async function loadAdminFeedback() {
       return;
     }
     body.innerHTML = items.map(item => {
-      const closed = item.status === "closed";
       const who = item.playerName ? esc(item.playerName) : "Guest";
-      return '<div class="feedback-row' + (closed ? " closed" : "") + '">' +
+      return '<div class="feedback-row" data-feedback-row="' + item.id + '">' +
         '<div>' +
           '<div class="feedback-meta">#' + item.id + ' · ' + feedbackCategoryLabel(item.category) + ' · ' + who + ' · ' + esc(item.createdAt || "") + '</div>' +
           '<div class="feedback-message">' + esc(item.message || "") + '</div>' +
           (item.page ? '<div class="feedback-page">' + esc(item.page) + '</div>' : '') +
         '</div>' +
-        (closed ? '<span class="feedback-page">Closed</span>' : '<button class="feedback-close" type="button" data-feedback-id="' + item.id + '">Close</button>') +
+        '<button class="feedback-close" type="button" data-feedback-id="' + item.id + '">Close</button>' +
       '</div>';
     }).join("");
     body.querySelectorAll(".feedback-close").forEach(btn => {
@@ -2048,13 +2060,26 @@ async function loadAdminFeedback() {
 async function closeFeedbackItem(id) {
   if (!id) return;
   sfx.click();
+  const row = document.querySelector('[data-feedback-row="' + String(id).replace(/"/g, "") + '"]');
+  if (row) row.remove();
   try {
-    await fetch("/api/feedback/" + encodeURIComponent(id) + "/close", {
+    const res = await fetch("/api/feedback/" + encodeURIComponent(id) + "/close", {
       method: "POST",
       headers: store._headers(false)
     });
-    await loadAdminFeedback();
+    if (!res.ok) await loadAdminFeedback();
+    else if (!$("feedbackBody").querySelector(".feedback-row")) {
+      $("feedbackBody").innerHTML = '<div class="analytics-row"><span>No feedback yet</span><span>Nice</span></div>';
+    }
   } catch (e) {}
+}
+
+function toggleAdminFeedback() {
+  const body = $("feedbackBody");
+  const toggle = $("feedbackToggle");
+  if (!body || !toggle) return;
+  const collapsed = body.classList.toggle("collapsed");
+  toggle.classList.toggle("closed", collapsed);
 }
 
 function openPublicLeaderboard() {
