@@ -936,6 +936,7 @@ a{color:#37a578;font-weight:700;text-decoration:none}
 h1{font-size:38px;line-height:1;margin:0 0 6px;letter-spacing:-1px}
 .sub{color:#93a0aa;margin-bottom:22px}
 .row{display:grid;grid-template-columns:44px 1fr auto 42px;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:10px 14px;margin-bottom:8px;box-shadow:0 2px 8px rgba(38,50,58,.08)}
+.row.me{background:#effaf5;outline:2px solid rgba(55,165,120,.55);box-shadow:0 5px 18px rgba(55,165,120,.22),0 2px 8px rgba(38,50,58,.08)}
 .rank{font-weight:700;color:#93a0aa}.name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sq{font-size:13px}.score{font-weight:700;text-align:right}
 .empty{background:#fff;border-radius:12px;padding:18px;color:#93a0aa;text-align:center}
 </style>
@@ -951,14 +952,17 @@ h1{font-size:38px;line-height:1;margin:0 0 6px;letter-spacing:-1px}
 function dateKey(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
 function color(s){return "hsl("+Math.round(Math.max(0,Math.min(100,s))*1.2)+",62%,44%)"}
+function authHeaders(){try{const t=localStorage.getItem("ss:auth:token")||"";return t?{Authorization:"Bearer "+t}:{}}catch(e){return {}}}
 async function load(){
   const key=dateKey(new Date());
   document.getElementById("sub").textContent=key;
+  const headers=authHeaders();
+  const me=headers.Authorization?await fetch("/api/auth/me",{headers}).then(r=>r.ok?r.json():null).catch(()=>null):null;
   const board=await fetch("/api/leaderboard/"+encodeURIComponent(key)).then(r=>r.json()).catch(()=>[]);
   const el=document.getElementById("board");
   if(!board.length){el.className="empty";el.textContent="No finishes yet today.";return}
   el.className="";
-  el.innerHTML=board.slice(0,25).map((e,i)=>'<div class="row"><span class="rank">'+(i+1)+'.</span><span class="name">'+esc(e.n)+'</span><span class="sq">'+esc(e.q)+'</span><span class="score" style="color:'+color(e.s)+'">'+e.s+'</span></div>').join("");
+  el.innerHTML=board.slice(0,25).map((e,i)=>'<div class="row'+(me&&e.pid===me.pid?' me':'')+'"><span class="rank">'+(i+1)+'.</span><span class="name">'+esc(e.n)+'</span><span class="sq">'+esc(e.q)+'</span><span class="score" style="color:'+color(e.s)+'">'+e.s+'</span></div>').join("");
 }
 load();
 </script>
