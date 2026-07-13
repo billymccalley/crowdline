@@ -33,6 +33,7 @@ ANALYTICS_EVENTS = {
     "share_copied",
 }
 FEEDBACK_CATEGORIES = {"bug", "confusing", "idea", "content", "account", "other"}
+CURATION_LABELS = {"daily", "confusing", "too_easy", "too_hard", "funny", "needs_review"}
 ADMIN_NAMES = {"billy"}
 BLOCKED_NAME_PARTS = {
     "fuck",
@@ -174,6 +175,14 @@ def init_db():
               status TEXT NOT NULL DEFAULT 'open',
               created_at TEXT NOT NULL,
               closed_at TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS puzzle_curation (
+              round_id TEXT PRIMARY KEY,
+              label TEXT NOT NULL,
+              note TEXT NOT NULL DEFAULT '',
+              updated_by TEXT NOT NULL DEFAULT '',
+              updated_at TEXT NOT NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_crowd_votes_round
@@ -361,6 +370,10 @@ class Handler(BaseHTTPRequestHandler):
             self.handle_feedback(parts)
             return
 
+        if len(parts) >= 2 and parts[1] == "curation":
+            self.handle_curation(parts)
+            return
+
         if len(parts) == 2 and parts[1] == "report":
             self.handle_report()
             return
@@ -544,6 +557,71 @@ class Handler(BaseHTTPRequestHandler):
                         for row in rows
                     ],
                 })
+                return
+
+        self.send_error_json(404, "Not found")
+
+    def handle_curation(self, parts):
+        with DB_LOCK:
+            user = self.auth_user()
+            if not user or not user.get("isAdmin"):
+                self.send_error_json(403, "Curation is private")
+                return
+
+            if self.command == "GET" and len(parts) == 2:
+                rows = DB.execute(
+                    """
+                    SELECT round_id, label, note, updated_by, updated_at
+                    FROM puzzle_curation
+                    ORDER BY updated_at DESC, round_id ASC
+                    """
+                ).fetchall()
+                self.send_json(200, {
+                    "items": [
+                        {
+                            "roundId": row["round_id"],
+                            "label": row["label"],
+                            "note": row["note"],
+                            "updatedBy": row["updated_by"],
+                            "updatedAt": row["updated_at"],
+                        }
+                        for row in rows
+                    ]
+                })
+                return
+
+            if self.command == "POST" and len(parts) == 2:
+                body = self.read_json()
+                round_id = clean_id(body.get("roundId"), 80)
+                label = str(body.get("label") or "").strip().lower()
+                note = str(body.get("note") or "").strip()[:240]
+                if not round_id:
+                    self.send_error_json(400, "Pick a round")
+                    return
+                if label in {"", "unmarked"}:
+                    DB.execute("DELETE FROM puzzle_curation WHERE round_id = ?", (round_id,))
+                    DB.commit()
+                    self.send_json(200, {"ok": True})
+                    return
+                if label not in CURATION_LABELS:
+                    self.send_error_json(400, "Pick a curation label")
+                    return
+
+                DB.execute(
+                    """
+                    INSERT INTO puzzle_curation
+                      (round_id, label, note, updated_by, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(round_id)
+                    DO UPDATE SET label = excluded.label,
+                                  note = excluded.note,
+                                  updated_by = excluded.updated_by,
+                                  updated_at = excluded.updated_at
+                    """,
+                    (round_id, label, note, user["pid"], now_iso()),
+                )
+                DB.commit()
+                self.send_json(200, {"ok": True})
                 return
 
         self.send_error_json(404, "Not found")

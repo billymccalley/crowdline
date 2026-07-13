@@ -277,6 +277,21 @@
     padding: 9px 16px; font-weight: 700; font-size: 14px;
     box-shadow: 0 10px 24px rgba(38,50,58,.28);
   }
+  .onboarding-hint {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    min-height: 42px; margin-top: 10px; color: var(--muted);
+    font-size: 12px; font-weight: 700;
+  }
+  .onboarding-hint.off { display: none; }
+  .hint-chip {
+    background: #fff; border-radius: 999px; color: var(--ink);
+    padding: 7px 13px; box-shadow: 0 4px 14px rgba(38,50,58,.14);
+    animation: hintSlide 1.45s ease-in-out infinite;
+  }
+  @keyframes hintSlide {
+    0%, 100% { transform: translateX(-18px); }
+    50% { transform: translateX(18px); }
+  }
 
   .verdict { text-align: center; margin-top: 8px; min-height: 108px; }
   .score-big { font-size: 50px; font-weight: 700; letter-spacing: -1px; line-height: 1.1; display: inline-block; }
@@ -402,8 +417,8 @@
   .modal textarea { min-height: 120px; resize: vertical; text-align: left; line-height: 1.4; font-weight: 600; }
   .modal select { appearance: none; cursor: pointer; }
   .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: var(--accent); }
-  .archive-list, .analytics-list, .feedback-list { display: grid; gap: 8px; margin-bottom: 12px; }
-  .archive-item, .analytics-row, .feedback-row {
+  .archive-list, .analytics-list, .feedback-list, .curation-list { display: grid; gap: 8px; margin-bottom: 12px; }
+  .archive-item, .analytics-row, .feedback-row, .curation-row {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     background: #f4f6f5; border: none; border-radius: 12px; padding: 10px 12px;
     color: var(--ink); font: 700 13px "Trebuchet MS", sans-serif; text-align: left;
@@ -435,6 +450,12 @@
   .admin-toggle .chev { font-size: 13px; transition: transform .15s ease; }
   .admin-toggle.closed .chev { transform: rotate(-90deg); }
   .feedback-list.collapsed { display: none; }
+  .curation-panel.collapsed { display: none; }
+  .curation-controls { display: grid; gap: 8px; margin-bottom: 12px; }
+  .curation-controls select, .curation-controls input { margin-bottom: 0; }
+  .curation-row { display: block; }
+  .curation-round { color: var(--ink); overflow-wrap: anywhere; }
+  .curation-note { color: var(--muted); font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
   .bottom-meta {
     position: fixed; left: 0; right: 0; bottom: 10px; z-index: 30;
     display: flex; justify-content: center; align-items: center; gap: 12px;
@@ -485,7 +506,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .screen.on, .pin.pop, .chip, .pin.crowd.in, .quip.in, .legend.in, .fbar,
-    .btn.appear, .demo .dp, .score-big.pop, .final-score.pop, .lb-row, .overlay, .modal { animation: none; }
+    .btn.appear, .demo .dp, .score-big.pop, .final-score.pop, .lb-row, .overlay, .modal, .hint-chip { animation: none; }
     .pin.crowd { opacity: 1; }
     .quip, .legend { opacity: 1; }
     .fbar { transform: scaleY(1); }
@@ -548,6 +569,10 @@
       <div class="guide" id="guide"></div>
     </div>
     <div class="tray" id="tray"></div>
+    <div class="onboarding-hint off" id="onboardingHint">
+      <span class="hint-chip" id="hintChip">Drag me</span>
+      <span>Drag an item left or right</span>
+    </div>
     <div class="verdict" id="verdict"></div>
     <div class="controls">
       <button class="btn" id="submitBtn" disabled>Lock it in</button>
@@ -1378,8 +1403,12 @@ function showLockModal() {
     '<h3>Daily complete!</h3>' +
     '<p>You scored <b>' + (dailyDone ? dailyDone.score : 0) + '/100</b> today. A new line unlocks at midnight.</p>' +
     '<div class="count" id="lockCount">' + fmtCountdown(msUntilMidnight()) + '</div>' +
-    '<button class="btn" id="lockOk">See you then</button>'
+    '<div class="auth-actions">' +
+      '<button class="btn" id="lockShare">Share today</button>' +
+      '<button class="btn secondary" id="lockOk">See you then</button>' +
+    '</div>'
   );
+  $("lockShare").addEventListener("click", async () => { await shareDaily($("lockShare")); });
   $("lockOk").addEventListener("click", () => { sfx.click(); closeModal(); });
   countdownTimer = setInterval(() => {
     const el = $("lockCount");
@@ -1674,6 +1703,7 @@ function loadRound() {
   tray.innerHTML = "";
   const items = [...r.items].sort(() => Math.random() - .5);
   for (const [name] of items) tray.appendChild(makeChip(name));
+  showDragHint(items[0] && items[0][0]);
 }
 
 function makeChip(name) {
@@ -1685,11 +1715,33 @@ function makeChip(name) {
   return chip;
 }
 
+function hasSeenDragHint() {
+  try { return localStorage.getItem("cl:onboard:drag") === "1"; } catch (e) { return false; }
+}
+
+function showDragHint(itemName) {
+  const hint = $("onboardingHint");
+  if (!hint) return;
+  if (hasSeenDragHint() || roundIdx !== 0 || Object.keys(placed).length) {
+    hint.classList.add("off");
+    return;
+  }
+  $("hintChip").textContent = itemName || "Drag me";
+  hint.classList.remove("off");
+}
+
+function dismissDragHint() {
+  const hint = $("onboardingHint");
+  if (hint) hint.classList.add("off");
+  try { localStorage.setItem("cl:onboard:drag", "1"); } catch (e) {}
+}
+
 /* ================= DRAG ================= */
 function startDrag(name, e, sourceEl) {
   if (revealed || dragging || (e.pointerType === "mouse" && e.button !== 0)) return;
   e.preventDefault();
   dragging = true;
+  dismissDragHint();
   sfx.pick();
 
   if (placed[name] !== undefined) { delete placed[name]; renderPins(); }
@@ -2110,7 +2162,26 @@ function feedbackCategoryLabel(value) {
   }[value] || "Other";
 }
 
-async function shareDaily() {
+const CURATION_LABELS = {
+  unmarked: "Unmarked",
+  daily: "Daily-worthy",
+  confusing: "Too confusing",
+  too_easy: "Too easy",
+  too_hard: "Too hard",
+  funny: "Funny",
+  needs_review: "Needs review"
+};
+let adminCuration = {};
+
+function curationLabel(value) {
+  return CURATION_LABELS[value] || value || "Unmarked";
+}
+
+function roundOptionLabel(round) {
+  return round.id + " - " + round.a + " / " + round.b;
+}
+
+async function shareDaily(sourceBtn) {
   const n = activeDailyNumber || dailyNumber();
   const key = activeDailyKey || todayKey();
   const r = dailyRound(n);
@@ -2135,11 +2206,11 @@ async function shareDaily() {
       ok = true;
     } catch (e2) {}
   }
-  const btn = $("shareBtn");
-  btn.textContent = ok ? "Copied!" : "Couldn't copy";
+  const btn = sourceBtn || $("shareBtn");
+  if (btn) btn.textContent = ok ? "Copied!" : "Couldn't copy";
   if (ok) trackEvent("share_copied", key);
   sfx.click();
-  setTimeout(() => { btn.textContent = "Share"; }, 1600);
+  setTimeout(() => { if (btn) btn.textContent = sourceBtn ? "Share today" : "Share"; }, 1600);
 }
 
 /* ================= STATS SCREEN ================= */
@@ -2183,11 +2254,16 @@ async function showAnalytics() {
       '<button class="admin-toggle" id="feedbackToggle" type="button"><span>Feedback</span><span class="chev">▾</span></button>' +
       '<div class="feedback-list" id="feedbackBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div>' +
     '</div>' +
+    '<div class="admin-section">' +
+      '<button class="admin-toggle" id="curationToggle" type="button"><span>Puzzle curation</span><span class="chev">▾</span></button>' +
+      '<div class="curation-panel" id="curationBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div>' +
+    '</div>' +
     '<button class="btn secondary" id="analyticsClose">Close</button>',
     "admin-modal"
   );
   $("analyticsClose").addEventListener("click", () => { sfx.click(); closeModal(); });
   $("feedbackToggle").addEventListener("click", toggleAdminFeedback);
+  $("curationToggle").addEventListener("click", toggleAdminCuration);
   try {
     const data = await fetch("/api/analytics/summary", { headers: store._headers(false) }).then(r => r.json());
     const order = ["daily_start", "daily_complete", "practice_start", "signup", "share_copied"];
@@ -2198,6 +2274,7 @@ async function showAnalytics() {
     $("analyticsBody").innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
   }
   await loadAdminFeedback();
+  await loadAdminCuration();
 }
 
 async function loadAdminFeedback() {
@@ -2249,6 +2326,105 @@ async function closeFeedbackItem(id) {
 function toggleAdminFeedback() {
   const body = $("feedbackBody");
   const toggle = $("feedbackToggle");
+  if (!body || !toggle) return;
+  const collapsed = body.classList.toggle("collapsed");
+  toggle.classList.toggle("closed", collapsed);
+}
+
+async function loadAdminCuration() {
+  const body = $("curationBody");
+  if (!body) return;
+  try {
+    const data = await fetch("/api/curation", { headers: store._headers(false) }).then(r => r.json());
+    adminCuration = {};
+    (data.items || []).forEach(item => { adminCuration[item.roundId] = item; });
+    renderCurationPanel();
+  } catch (e) {
+    body.innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
+  }
+}
+
+function renderCurationPanel() {
+  const body = $("curationBody");
+  if (!body) return;
+  const options = ROUNDS.map(round =>
+    '<option value="' + esc(round.id) + '">' + esc(roundOptionLabel(round)) + '</option>'
+  ).join("");
+  body.innerHTML =
+    '<div class="curation-controls">' +
+      '<select id="curationRound" aria-label="Round">' + options + '</select>' +
+      '<select id="curationLabel" aria-label="Curation label">' +
+        Object.keys(CURATION_LABELS).map(key => '<option value="' + key + '">' + curationLabel(key) + '</option>').join("") +
+      '</select>' +
+      '<input id="curationNote" maxlength="240" placeholder="optional note" autocomplete="off" />' +
+      '<button class="btn" id="curationSave">Save mark</button>' +
+      '<div class="auth-error" id="curationStatus"></div>' +
+    '</div>' +
+    '<div class="curation-list" id="curationList"></div>';
+  $("curationRound").addEventListener("change", syncCurationFields);
+  $("curationSave").addEventListener("click", saveCurationMark);
+  syncCurationFields();
+  renderCurationList();
+}
+
+function syncCurationFields() {
+  const select = $("curationRound");
+  if (!select) return;
+  const mark = adminCuration[select.value] || {};
+  $("curationLabel").value = mark.label || "unmarked";
+  $("curationNote").value = mark.note || "";
+  const status = $("curationStatus");
+  if (status) status.textContent = "";
+}
+
+function renderCurationList() {
+  const list = $("curationList");
+  if (!list) return;
+  const items = Object.values(adminCuration);
+  if (!items.length) {
+    list.innerHTML = '<div class="analytics-row"><span>No marks yet</span><span>Start tagging</span></div>';
+    return;
+  }
+  list.innerHTML = items.slice(0, 24).map(item => {
+    const round = roundById(item.roundId);
+    return '<div class="curation-row">' +
+      '<div class="feedback-meta">' + esc(curationLabel(item.label)) + ' · ' + esc(item.roundId) + '</div>' +
+      '<div class="curation-round">' + esc(round.a + " / " + round.b) + '</div>' +
+      (item.note ? '<div class="curation-note">' + esc(item.note) + '</div>' : '') +
+    '</div>';
+  }).join("");
+}
+
+async function saveCurationMark() {
+  const roundId = $("curationRound").value;
+  const label = $("curationLabel").value;
+  const note = $("curationNote").value.trim();
+  const status = $("curationStatus");
+  status.textContent = "";
+  try {
+    const res = await fetch("/api/curation", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ roundId, label, note })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      status.textContent = data.error || "Could not save mark.";
+      return;
+    }
+    if (label === "unmarked") delete adminCuration[roundId];
+    else adminCuration[roundId] = { roundId, label, note, updatedAt: "" };
+    status.textContent = label === "unmarked" ? "Cleared." : "Saved.";
+    sfx.click();
+    renderCurationList();
+  } catch (e) {
+    status.textContent = "Could not reach the server.";
+  }
+}
+
+function toggleAdminCuration() {
+  const body = $("curationBody");
+  const toggle = $("curationToggle");
   if (!body || !toggle) return;
   const collapsed = body.classList.toggle("collapsed");
   toggle.classList.toggle("closed", collapsed);
