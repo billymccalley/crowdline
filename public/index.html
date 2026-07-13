@@ -39,7 +39,7 @@
     color: var(--ink);
     font: 16px/1.5 "Trebuchet MS", "Segoe UI", -apple-system, sans-serif;
     display: flex; justify-content: center;
-    padding: 32px 16px;
+    padding: 32px 16px 76px;
     user-select: none; -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
     min-height: 100%;
@@ -368,27 +368,58 @@
     box-shadow: 0 16px 48px rgba(38,50,58,.25);
     animation: btnIn .3s var(--ease-pop);
   }
+  .modal.admin-modal, .modal.feedback-modal { max-width: 560px; }
   .modal .big { font-size: 38px; margin-bottom: 8px; }
   .modal h3 { font-size: 19px; margin-bottom: 8px; }
   .modal p { font-size: 13px; color: var(--muted); margin-bottom: 16px; }
   .modal .count { font-size: 26px; font-weight: 700; margin-bottom: 16px; letter-spacing: -.5px; }
-  .modal input {
+  .modal input, .modal select, .modal textarea {
     width: 100%; padding: 11px 14px; margin-bottom: 14px;
     border: 2px solid #dfe6e2; border-radius: 12px;
     font: 700 15px "Trebuchet MS", sans-serif; color: var(--ink);
-    text-align: center; outline: none;
+    text-align: center; outline: none; background: #fff;
     transition: border-color .15s;
   }
-  .modal input:focus { border-color: var(--accent); }
-  .archive-list, .analytics-list { display: grid; gap: 8px; margin-bottom: 12px; }
-  .archive-item, .analytics-row {
+  .modal textarea { min-height: 120px; resize: vertical; text-align: left; line-height: 1.4; font-weight: 600; }
+  .modal select { appearance: none; cursor: pointer; }
+  .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: var(--accent); }
+  .archive-list, .analytics-list, .feedback-list { display: grid; gap: 8px; margin-bottom: 12px; }
+  .archive-item, .analytics-row, .feedback-row {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;
     background: #f4f6f5; border: none; border-radius: 12px; padding: 10px 12px;
     color: var(--ink); font: 700 13px "Trebuchet MS", sans-serif; text-align: left;
   }
+  .feedback-row { align-items: flex-start; display: grid; grid-template-columns: 1fr auto; }
+  .feedback-row.closed { opacity: .56; }
+  .feedback-meta { color: var(--muted); font-size: 11px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .8px; }
+  .feedback-message { font-weight: 700; overflow-wrap: anywhere; }
+  .feedback-page { color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .feedback-close {
+    border: none; border-radius: 999px; background: #fff; color: var(--accent);
+    cursor: pointer; font: 700 12px "Trebuchet MS", sans-serif; padding: 7px 10px;
+  }
+  .feedback-close:hover { filter: brightness(.98); }
   .archive-item { cursor: pointer; }
   .archive-item:hover { filter: brightness(.98); }
   .analytics-row span:last-child { color: var(--accent); }
+  .admin-section { text-align: left; margin-top: 18px; }
+  .admin-section h4 {
+    color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .bottom-meta {
+    position: fixed; left: 0; right: 0; bottom: 10px; z-index: 30;
+    display: flex; justify-content: center; align-items: center; gap: 12px;
+    pointer-events: none;
+  }
+  .feedback-tab {
+    pointer-events: auto; border: none; border-radius: 999px; background: #fff;
+    color: var(--muted); cursor: pointer; padding: 8px 13px;
+    font: 700 12px "Trebuchet MS", sans-serif;
+    box-shadow: 0 4px 14px rgba(38,50,58,.1);
+  }
+  .feedback-tab:hover { color: var(--ink); transform: translateY(-1px); }
+  .version-tag { color: #a7b1ba; font-size: 11px; font-weight: 700; }
   .auth-error { min-height: 18px; margin: -4px 0 12px; color: #c44b4b; font-size: 12px; font-weight: 700; }
   .auth-note {
     background: #f4f6f5; border-radius: 12px; padding: 10px 12px;
@@ -417,7 +448,7 @@
   .cf { position: absolute; top: -14px; width: 9px; height: 13px; border-radius: 2px; }
 
   @media (max-width: 480px) {
-    body { padding: 24px 12px; }
+    body { padding: 24px 12px 76px; }
     .pin .lbl { font-size: 11px; padding: 5px 10px; }
     .chip { font-size: 13px; padding: 8px 13px; }
     .stage { height: 225px; }
@@ -465,7 +496,7 @@
       <div class="home-links">
         <button class="stats-link" id="statsBtn">Stats</button>
         <button class="stats-link" id="leaderboardBtn">Leaderboard</button>
-        <button class="stats-link" id="analyticsBtn" style="display:none;">Analytics</button>
+        <button class="stats-link" id="analyticsBtn" style="display:none;">Admin</button>
       </div>
       <div class="account-line">
         <span id="authStatus">Playing as guest</span>
@@ -515,6 +546,11 @@
     <button class="btn secondary" id="statsBackBtn">Back</button>
   </div>
 
+</div>
+
+<div class="bottom-meta">
+  <button class="feedback-tab" id="feedbackBtn" type="button">Feedback</button>
+  <span class="version-tag">Crowdline v.0.1</span>
 </div>
 
 <!-- MODAL -->
@@ -1168,7 +1204,8 @@ function countUp(el, target, ms, popAfter) {
 function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
 /* ================= MODAL ================= */
-function openModal(html) {
+function openModal(html, className) {
+  $("modalBox").className = "modal" + (className ? " " + className : "");
   $("modalBox").innerHTML = html;
   $("overlay").classList.add("on");
 }
@@ -1822,6 +1859,76 @@ async function reportName(name) {
   $("reportOk").addEventListener("click", () => { sfx.click(); closeModal(); });
 }
 
+function showFeedbackModal() {
+  sfx.open();
+  openModal(
+    '<div class="big">✍️</div>' +
+    '<h3>Send feedback</h3>' +
+    '<p>Bug, confusing moment, category idea, tiny annoyance — send it here.</p>' +
+    '<select id="feedbackCategory" aria-label="Feedback category">' +
+      '<option value="bug">Bug or broken thing</option>' +
+      '<option value="confusing">Confusing moment</option>' +
+      '<option value="idea">Idea or request</option>' +
+      '<option value="content">Puzzle/category idea</option>' +
+      '<option value="account">Account/login issue</option>' +
+      '<option value="other">Other</option>' +
+    '</select>' +
+    '<textarea id="feedbackMessage" maxlength="1200" placeholder="What should Billy know?"></textarea>' +
+    '<div class="auth-error" id="feedbackError"></div>' +
+    '<div class="auth-actions">' +
+      '<button class="btn" id="feedbackSend">Send</button>' +
+      '<button class="btn secondary" id="feedbackCancel">Cancel</button>' +
+    '</div>',
+    "feedback-modal"
+  );
+  $("feedbackCancel").addEventListener("click", () => { sfx.click(); closeModal(); });
+  $("feedbackSend").addEventListener("click", submitFeedback);
+  setTimeout(() => $("feedbackMessage").focus(), 100);
+}
+
+async function submitFeedback() {
+  const btn = $("feedbackSend");
+  const err = $("feedbackError");
+  const category = $("feedbackCategory").value;
+  const message = $("feedbackMessage").value.trim();
+  if (message.length < 3) {
+    err.textContent = "Give me a few words first.";
+    return;
+  }
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers: store._headers(true),
+      body: JSON.stringify({ category, message, page: location.pathname || "/" })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      err.textContent = data.error || "Could not send feedback.";
+      btn.disabled = false;
+      return;
+    }
+    sfx.success();
+    openModal('<div class="big">✓</div><h3>Sent</h3><p>Thanks. This goes into Billy\'s admin panel.</p><button class="btn" id="feedbackOk">OK</button>');
+    $("feedbackOk").addEventListener("click", () => { sfx.click(); closeModal(); });
+  } catch (e) {
+    err.textContent = "Could not reach the server.";
+    btn.disabled = false;
+  }
+}
+
+function feedbackCategoryLabel(value) {
+  return {
+    bug: "Bug",
+    confusing: "Confusing",
+    idea: "Idea",
+    content: "Content",
+    account: "Account",
+    other: "Other"
+  }[value] || "Other";
+}
+
 async function shareDaily() {
   const n = activeDailyNumber || dailyNumber();
   const key = activeDailyKey || todayKey();
@@ -1888,7 +1995,13 @@ async function showStats() {
 async function showAnalytics() {
   sfx.open();
   if (!isAdmin) return;
-  openModal('<div class="big">📈</div><h3>Analytics</h3><p>Privacy-friendly event counts only.</p><div class="analytics-list" id="analyticsBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div><button class="btn secondary" id="analyticsClose">Close</button>');
+  openModal(
+    '<div class="big">📈</div><h3>Admin</h3><p>Privacy-friendly event counts and player feedback.</p>' +
+    '<div class="admin-section"><h4>Analytics</h4><div class="analytics-list" id="analyticsBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div></div>' +
+    '<div class="admin-section"><h4>Feedback</h4><div class="feedback-list" id="feedbackBody"><div class="analytics-row"><span>Loading</span><span>...</span></div></div></div>' +
+    '<button class="btn secondary" id="analyticsClose">Close</button>',
+    "admin-modal"
+  );
   $("analyticsClose").addEventListener("click", () => { sfx.click(); closeModal(); });
   try {
     const data = await fetch("/api/analytics/summary", { headers: store._headers(false) }).then(r => r.json());
@@ -1899,6 +2012,49 @@ async function showAnalytics() {
   } catch (e) {
     $("analyticsBody").innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
   }
+  await loadAdminFeedback();
+}
+
+async function loadAdminFeedback() {
+  const body = $("feedbackBody");
+  if (!body) return;
+  try {
+    const data = await fetch("/api/feedback", { headers: store._headers(false) }).then(r => r.json());
+    const items = (data.items || []).slice(0, 30);
+    if (!items.length) {
+      body.innerHTML = '<div class="analytics-row"><span>No feedback yet</span><span>Nice</span></div>';
+      return;
+    }
+    body.innerHTML = items.map(item => {
+      const closed = item.status === "closed";
+      const who = item.playerName ? esc(item.playerName) : "Guest";
+      return '<div class="feedback-row' + (closed ? " closed" : "") + '">' +
+        '<div>' +
+          '<div class="feedback-meta">#' + item.id + ' · ' + feedbackCategoryLabel(item.category) + ' · ' + who + ' · ' + esc(item.createdAt || "") + '</div>' +
+          '<div class="feedback-message">' + esc(item.message || "") + '</div>' +
+          (item.page ? '<div class="feedback-page">' + esc(item.page) + '</div>' : '') +
+        '</div>' +
+        (closed ? '<span class="feedback-page">Closed</span>' : '<button class="feedback-close" type="button" data-feedback-id="' + item.id + '">Close</button>') +
+      '</div>';
+    }).join("");
+    body.querySelectorAll(".feedback-close").forEach(btn => {
+      btn.addEventListener("click", () => closeFeedbackItem(btn.getAttribute("data-feedback-id")));
+    });
+  } catch (e) {
+    body.innerHTML = '<div class="analytics-row"><span>Could not load</span><span>--</span></div>';
+  }
+}
+
+async function closeFeedbackItem(id) {
+  if (!id) return;
+  sfx.click();
+  try {
+    await fetch("/api/feedback/" + encodeURIComponent(id) + "/close", {
+      method: "POST",
+      headers: store._headers(false)
+    });
+    await loadAdminFeedback();
+  } catch (e) {}
 }
 
 function openPublicLeaderboard() {
@@ -1937,6 +2093,7 @@ $("leaderboardBtn").addEventListener("click", openPublicLeaderboard);
 $("analyticsBtn").addEventListener("click", showAnalytics);
 $("statsBackBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
 $("authBtn").addEventListener("click", toggleAuth);
+$("feedbackBtn").addEventListener("click", showFeedbackModal);
 $("soundBtn").addEventListener("click", toggleMute);
 document.addEventListener("pointerdown", () => { try { ac(); } catch (e) {} }, { once: true });
 loadMute();

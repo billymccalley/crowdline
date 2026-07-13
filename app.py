@@ -32,6 +32,7 @@ ANALYTICS_EVENTS = {
     "signup",
     "share_copied",
 }
+FEEDBACK_CATEGORIES = {"bug", "confusing", "idea", "content", "account", "other"}
 ADMIN_NAMES = {"billy"}
 BLOCKED_NAME_PARTS = {
     "fuck",
@@ -133,6 +134,18 @@ def init_db():
               created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS feedback (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              user_id TEXT NOT NULL DEFAULT '',
+              player_name TEXT NOT NULL DEFAULT '',
+              category TEXT NOT NULL,
+              message TEXT NOT NULL,
+              page TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'open',
+              created_at TEXT NOT NULL,
+              closed_at TEXT NOT NULL DEFAULT ''
+            );
+
             CREATE INDEX IF NOT EXISTS idx_crowd_votes_round
               ON crowd_votes (round_id);
 
@@ -144,6 +157,9 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_analytics_events_day
               ON analytics_events (day_key, event);
+
+            CREATE INDEX IF NOT EXISTS idx_feedback_status
+              ON feedback (status, created_at);
             """
         )
         DB.commit()
@@ -299,6 +315,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if len(parts) >= 2 and parts[1] == "analytics":
             self.handle_analytics(parts)
+            return
+
+        if len(parts) >= 2 and parts[1] == "feedback":
+            self.handle_feedback(parts)
             return
 
         if len(parts) == 2 and parts[1] == "report":
@@ -484,6 +504,93 @@ class Handler(BaseHTTPRequestHandler):
                         for row in rows
                     ],
                 })
+                return
+
+        self.send_error_json(404, "Not found")
+
+    def handle_feedback(self, parts):
+        with DB_LOCK:
+            if self.command == "POST" and len(parts) == 2:
+                body = self.read_json()
+                category = str(body.get("category") or "other").strip().lower()
+                message = str(body.get("message") or "").strip()
+                page = str(body.get("page") or "").strip()[:160]
+                if category not in FEEDBACK_CATEGORIES:
+                    self.send_error_json(400, "Pick a feedback category")
+                    return
+                if len(message) < 3 or len(message) > 1200:
+                    self.send_error_json(400, "Feedback should be 3 to 1200 characters")
+                    return
+
+                user = self.auth_user()
+                timestamp = now_iso()
+                DB.execute(
+                    """
+                    INSERT INTO feedback
+                      (user_id, player_name, category, message, page, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, 'open', ?)
+                    """,
+                    (
+                        user["pid"] if user else "",
+                        user["name"] if user else "",
+                        category,
+                        message,
+                        page,
+                        timestamp,
+                    ),
+                )
+                DB.commit()
+                self.send_json(200, {"ok": True})
+                return
+
+            user = self.auth_user()
+            if not user or not user.get("isAdmin"):
+                self.send_error_json(403, "Feedback is private")
+                return
+
+            if self.command == "GET" and len(parts) == 2:
+                rows = DB.execute(
+                    """
+                    SELECT id, user_id, player_name, category, message, page, status, created_at, closed_at
+                    FROM feedback
+                    ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, created_at DESC
+                    LIMIT 100
+                    """
+                ).fetchall()
+                self.send_json(200, {
+                    "items": [
+                        {
+                            "id": row["id"],
+                            "userId": row["user_id"],
+                            "playerName": row["player_name"],
+                            "category": row["category"],
+                            "message": row["message"],
+                            "page": row["page"],
+                            "status": row["status"],
+                            "createdAt": row["created_at"],
+                            "closedAt": row["closed_at"],
+                        }
+                        for row in rows
+                    ]
+                })
+                return
+
+            if self.command == "POST" and len(parts) == 4 and parts[3] == "close":
+                try:
+                    feedback_id = int(parts[2])
+                except ValueError:
+                    self.send_error_json(400, "Invalid feedback id")
+                    return
+                DB.execute(
+                    """
+                    UPDATE feedback
+                    SET status = 'closed', closed_at = ?
+                    WHERE id = ? AND status != 'closed'
+                    """,
+                    (now_iso(), feedback_id),
+                )
+                DB.commit()
+                self.send_json(200, {"ok": True})
                 return
 
         self.send_error_json(404, "Not found")
