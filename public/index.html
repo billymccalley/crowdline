@@ -155,6 +155,30 @@
     min-height: 90px;
     overflow: hidden;
   }
+  .fake-ad {
+    min-height: 92px;
+    border: 1px solid #dfe6e2;
+    border-radius: 14px;
+    background:
+      linear-gradient(135deg, rgba(91,143,217,.12), rgba(240,151,90,.12)),
+      #fff;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    padding: 14px;
+    box-shadow: 0 2px 8px rgba(38,50,58,.06);
+  }
+  .fake-ad strong {
+    color: var(--ink);
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+  }
+  .fake-ad span {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+  }
   .ad-home { margin-top: 30px; }
   .ad-results { margin-top: 28px; }
   .ad-modal {
@@ -228,14 +252,32 @@
     background: linear-gradient(90deg, var(--pole-a), #eae7db 50%, var(--pole-b));
     box-shadow: inset 0 1px 4px rgba(38,50,58,.2);
     transition: top .35s ease;
+    z-index: 2;
   }
   .stage.reveal .track { top: 130px; }
+  .crowd-cloud {
+    position: absolute; left: 0; right: 0; top: 91px; height: 88px;
+    pointer-events: none; z-index: 1; opacity: 0;
+    animation: fade .4s ease .25s forwards;
+  }
+  .crowd-dot {
+    position: absolute;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(38,50,58,.22);
+    border: 1px solid rgba(255,255,255,.78);
+    box-shadow: 0 1px 3px rgba(38,50,58,.08);
+    transform: translate(-50%, -50%);
+  }
+  .crowd-dot.seed { background: rgba(38,50,58,.13); }
+  .crowd-dot.hot { background: rgba(240,151,90,.28); }
+  .crowd-dot.cool { background: rgba(91,143,217,.28); }
   .guide {
     position: absolute; width: 2px; top: 120px; height: 74px;
     background: var(--ink); opacity: 0; border-radius: 2px;
     transform: translateX(-50%);
     transition: opacity .12s;
     pointer-events: none;
+    z-index: 2;
   }
   .stage.reveal .guide { display: none; }
 
@@ -333,6 +375,7 @@
   .legend.in { animation: fade .4s ease .5s forwards; }
   .legend .you { display:inline-block; width:11px; height:11px; border-radius:50%; background:#fff; box-shadow: 0 1px 3px rgba(38,50,58,.32); vertical-align:-1px; }
   .legend .them { display:inline-block; width:11px; height:11px; border-radius:50%; background:var(--ink); vertical-align:-1px; }
+  .legend .spread { display:inline-block; width:11px; height:11px; border-radius:50%; background:rgba(38,50,58,.2); vertical-align:-1px; }
 
   .controls { text-align: center; margin-top: 16px; min-height: 52px; }
   .round-curation {
@@ -597,7 +640,7 @@
     .secondary-actions { grid-template-columns: 1fr; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .screen.on, .pin.pop, .chip, .pin.crowd.in, .quip.in, .legend.in, .fbar,
+    .screen.on, .pin.pop, .chip, .pin.crowd.in, .crowd-cloud, .quip.in, .legend.in, .fbar,
     .btn.appear, .demo .dp, .score-big.pop, .final-score.pop, .lb-row, .overlay, .modal, .hint-chip { animation: none; }
     .pin.crowd { opacity: 1; }
     .quip, .legend { opacity: 1; }
@@ -842,16 +885,33 @@ const ADSENSE_SLOTS = {
   practiceResults: "6640007063",
   archive: "9942470597"
 };
+const FAKE_ADS = ["localhost", "127.0.0.1"].includes(location.hostname);
 function adSlotForContext(context) {
   if (context === "daily") return ADSENSE_SLOTS.dailyResults;
   if (context === "practice") return ADSENSE_SLOTS.practiceResults;
   if (context === "archive") return ADSENSE_SLOTS.archive;
   return ADSENSE_SLOTS.home;
 }
+function fakeAdLabel(context) {
+  return {
+    home: "Home ad preview",
+    daily: "Daily results ad preview",
+    practice: "Practice results ad preview",
+    archive: "Archive ad preview"
+  }[context] || "Ad preview";
+}
 function mountAd(containerId, context) {
   const el = $(containerId);
   const slot = adSlotForContext(context);
   if (!el) return;
+  if (FAKE_ADS) {
+    el.dataset.adSlot = "fake-" + context;
+    el.classList.add("on");
+    el.innerHTML =
+      '<div class="ad-label">Advertisement</div>' +
+      '<div class="fake-ad"><div><strong>' + fakeAdLabel(context) + '</strong><span>Fake local ad - 320x100 / responsive</span></div></div>';
+    return;
+  }
   if (!slot || !/^\d+$/.test(String(slot))) {
     hideAd(containerId);
     return;
@@ -1267,6 +1327,12 @@ function stableHash(value) {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+function clampPct(value) {
+  return Math.min(100, Math.max(0, value));
+}
+function seededRand(key) {
+  return stableHash(key) / 4294967295;
 }
 function dailyLabelRank(label) {
   if (label === "daily") return 0;
@@ -1885,7 +1951,7 @@ function loadRound() {
 
   const stage = $("stage");
   stage.classList.remove("reveal");
-  stage.querySelectorAll(".pin").forEach(el => el.remove());
+  stage.querySelectorAll(".pin, .crowd-cloud").forEach(el => el.remove());
 
   const tray = $("tray");
   tray.innerHTML = "";
@@ -2049,6 +2115,47 @@ function updateSubmit() {
 }
 
 /* ================= REVEAL ================= */
+function crowdDistribution(name, seed, entry, roundId) {
+  let real = [];
+  if (entry && Array.isArray(entry.samples)) {
+    real = entry.samples.map(Number).filter(n => Number.isFinite(n)).map(clampPct);
+  }
+  const base = crowdAvg(seed, entry);
+  const target = Math.max(12, Math.min(22, real.length || 14));
+  const dots = real.slice(0, 22).map(pos => ({ pos, real: true }));
+  for (let i = dots.length; i < target; i++) {
+    const a = seededRand(roundId + ":" + name + ":a:" + i) - .5;
+    const b = seededRand(roundId + ":" + name + ":b:" + i) - .5;
+    const spread = real.length >= 6 ? 10 : 13 + seededRand(roundId + ":" + name + ":spread") * 7;
+    dots.push({ pos: clampPct(base + (a + b) * spread), real: false });
+  }
+  return dots;
+}
+
+function renderCrowdCloud(round, crowd) {
+  const stage = $("stage");
+  stage.querySelectorAll(".crowd-cloud").forEach(el => el.remove());
+  const cloud = document.createElement("div");
+  cloud.className = "crowd-cloud";
+  const lanes = [12, 30, 48, 66];
+  round.items.forEach(([name, seed], lane) => {
+    const entry = crowd[name];
+    const dots = crowdDistribution(name, seed, entry, round.id);
+    dots.forEach((dot, i) => {
+      const el = document.createElement("i");
+      const posTone = dot.pos < 42 ? " cool" : dot.pos > 58 ? " hot" : "";
+      el.className = "crowd-dot" + (dot.real ? "" : " seed") + posTone;
+      const jitterY = (seededRand(round.id + ":" + name + ":y:" + i) - .5) * 14;
+      const jitterX = (seededRand(round.id + ":" + name + ":x:" + i) - .5) * 3;
+      el.style.left = clampPct(dot.pos + jitterX) + "%";
+      el.style.top = (lanes[lane % lanes.length] + jitterY) + "px";
+      el.style.animationDelay = (.08 + lane * .04 + i * .008) + "s";
+      cloud.appendChild(el);
+    });
+  });
+  stage.insertBefore(cloud, $("track"));
+}
+
 async function submitRound() {
   if (revealed) return;
   revealed = true;
@@ -2060,6 +2167,7 @@ async function submitRound() {
   const crowd = await getCrowd(r.id);
   const stage = $("stage");
   stage.classList.add("reveal");
+  renderCrowdCloud(r, crowd);
   setTimeout(() => renderPins(), 360);
 
   let totalDist = 0, worst = { d: -1 };
@@ -2112,7 +2220,7 @@ async function submitRound() {
   $("verdict").innerHTML =
     '<div><span class="score-big" id="scoreNum" style="color:' + scoreColor(score) + '">0</span></div>' +
     '<div class="quip in">' + quip + '</div>' +
-    '<div class="legend in"><span class="you"></span> you &nbsp;&nbsp; <span class="them"></span> the crowd</div>';
+    '<div class="legend in"><span class="you"></span> you &nbsp;&nbsp; <span class="them"></span> crowd avg &nbsp;&nbsp; <span class="spread"></span> crowd spread</div>';
 
   const revealDone = 420 + sorted.length * 150;
   setTimeout(() => {

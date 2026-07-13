@@ -963,10 +963,26 @@ class Handler(BaseHTTPRequestHandler):
                     """,
                     (round_id,),
                 ).fetchall()
-                self.send_json(200, {
-                    row["item"]: {"sum": row["sum"], "n": row["n"]}
+                data = {
+                    row["item"]: {"sum": row["sum"], "n": row["n"], "samples": []}
                     for row in rows
-                })
+                }
+                sample_rows = DB.execute(
+                    """
+                    SELECT item, position
+                    FROM crowd_votes
+                    WHERE round_id = ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (round_id,),
+                ).fetchall()
+                for row in sample_rows:
+                    item = row["item"]
+                    if item not in data:
+                        data[item] = {"sum": 0, "n": 0, "samples": []}
+                    if len(data[item]["samples"]) < 80:
+                        data[item]["samples"].append(row["position"])
+                self.send_json(200, data)
                 return
 
             if self.command != "POST":
