@@ -339,6 +339,16 @@
   }
   .auth-fields { display: grid; gap: 10px; margin-bottom: 12px; }
   .auth-fields input { margin-bottom: 0; }
+  .password-wrap { position: relative; }
+  .password-wrap input { padding-right: 46px; }
+  .password-toggle {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px; border: none; border-radius: 50%;
+    background: transparent; cursor: pointer; font-size: 16px;
+    color: var(--muted); display: grid; place-items: center;
+  }
+  .password-toggle:hover { background: #f4f6f5; color: var(--ink); }
+  .password-toggle:focus-visible { outline: 3px solid var(--pole-a); outline-offset: 1px; }
   .auth-actions { display: grid; gap: 10px; }
   .modal .small-link {
     background: none; border: none; color: var(--muted); cursor: pointer;
@@ -1117,7 +1127,10 @@ function showAuthModal(mode2, reason) {
     '<div class="auth-note">' + esc(reason) + '</div>' +
     '<div class="auth-fields">' +
       '<input id="authName" maxlength="14" placeholder="name" autocomplete="username" />' +
-      '<input id="authPass" type="password" minlength="6" placeholder="password" autocomplete="' + (create ? "new-password" : "current-password") + '" />' +
+      '<div class="password-wrap">' +
+        '<input id="authPass" type="password" minlength="6" placeholder="password" autocomplete="' + (create ? "new-password" : "current-password") + '" />' +
+        '<button class="password-toggle" id="passwordToggle" type="button" aria-label="Show password" title="Show password">👁</button>' +
+      '</div>' +
     '</div>' +
     '<div class="auth-error" id="authError"></div>' +
     '<div class="auth-actions">' +
@@ -1132,7 +1145,19 @@ function showAuthModal(mode2, reason) {
   const submit = () => submitAuth(create ? "signup" : "login");
   $("authOk").addEventListener("click", submit);
   $("authSwitch").addEventListener("click", () => { sfx.click(); showAuthModal(create ? "login" : "signup", reason); });
+  $("passwordToggle").addEventListener("click", togglePasswordVisibility);
   [nameInput, passInput].forEach(input => input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); }));
+}
+
+function togglePasswordVisibility() {
+  const input = $("authPass");
+  const btn = $("passwordToggle");
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  btn.textContent = show ? "🙈" : "👁";
+  btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  btn.title = show ? "Hide password" : "Show password";
+  input.focus();
 }
 
 async function submitAuth(action) {
