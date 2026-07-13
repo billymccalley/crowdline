@@ -134,6 +134,34 @@
   .account-line strong { color: var(--ink); }
   .account-line .stats-link { margin-top: 0; }
 
+  .ad-slot {
+    display: none;
+    width: 100%;
+    max-width: 520px;
+    margin: 26px auto 0;
+    text-align: center;
+  }
+  .ad-slot.on { display: block; }
+  .ad-label {
+    color: #b3bcc4;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+  .ad-slot ins {
+    display: block;
+    min-height: 90px;
+    overflow: hidden;
+  }
+  .ad-home { margin-top: 30px; }
+  .ad-results { margin-top: 28px; }
+  .ad-modal {
+    max-width: 460px;
+    margin-top: 18px;
+  }
+
   .btn {
     font: 700 16px "Trebuchet MS", sans-serif;
     background: var(--accent); color: #fff;
@@ -616,6 +644,7 @@
         <button class="stats-link" id="authBtn">Sign in</button>
       </div>
     </div>
+    <div class="ad-slot ad-home" id="homeAd" aria-label="Advertisement"></div>
   </div>
 
   <!-- ROUND -->
@@ -659,6 +688,7 @@
       <button class="btn secondary" id="againBtn">Play again</button>
       <button class="btn secondary" id="homeBtn">Menu</button>
     </div>
+    <div class="ad-slot ad-results" id="resultsAd" aria-label="Advertisement"></div>
   </div>
 
   <!-- STATS -->
@@ -801,6 +831,46 @@ const sfx = {
   womp:      () => { tone(300, .3, "sawtooth", .08, 0, 200); tone(150, .4, "sawtooth", .06, .25, 95); },
 };
 function buzz(ms) { if (navigator.vibrate) try { navigator.vibrate(ms); } catch (e) {} }
+
+/* ================= ADS =================
+   Auto ads can run from the AdSense script in <head>. Manual slots stay hidden
+   until Google gives you slot IDs and they are pasted below. */
+const ADSENSE_CLIENT = "ca-pub-8269598864070713";
+const ADSENSE_SLOTS = {
+  home: "",
+  dailyResults: "",
+  practiceResults: "",
+  archive: ""
+};
+function adSlotForContext(context) {
+  if (context === "daily") return ADSENSE_SLOTS.dailyResults;
+  if (context === "practice") return ADSENSE_SLOTS.practiceResults;
+  if (context === "archive") return ADSENSE_SLOTS.archive;
+  return ADSENSE_SLOTS.home;
+}
+function mountAd(containerId, context) {
+  const el = $(containerId);
+  const slot = adSlotForContext(context);
+  if (!el) return;
+  if (!slot || !/^\d+$/.test(String(slot))) {
+    hideAd(containerId);
+    return;
+  }
+  if (el.dataset.adSlot === String(slot)) {
+    el.classList.add("on");
+    return;
+  }
+  el.dataset.adSlot = String(slot);
+  el.classList.add("on");
+  el.innerHTML =
+    '<div class="ad-label">Advertisement</div>' +
+    '<ins class="adsbygoogle" data-ad-client="' + ADSENSE_CLIENT + '" data-ad-slot="' + String(slot) + '" data-ad-format="auto" data-full-width-responsive="true"></ins>';
+  try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+}
+function hideAd(containerId) {
+  const el = $(containerId);
+  if (el) el.classList.remove("on");
+}
 
 async function loadMute() {
   try {
@@ -1477,6 +1547,7 @@ const $ = (id) => document.getElementById(id);
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
   $(id).classList.add("on");
+  if (id === "title") mountAd("homeAd", "home");
 }
 function setSub(text) {
   const el = $("sub");
@@ -1760,8 +1831,9 @@ async function showArchiveModal() {
       '<span>Daily #' + n + '</span><span>' + esc(r.a) + ' → ' + esc(r.b) + '</span></button>';
   }
   if (!count) html += '<div class="analytics-row"><span>No archive yet</span><span>Check back tomorrow</span></div>';
-  html += '</div><button class="btn secondary" id="archiveClose">Back</button>';
+  html += '</div><button class="btn secondary" id="archiveClose">Back</button><div class="ad-slot ad-modal" id="archiveAd" aria-label="Advertisement"></div>';
   openModal(html);
+  mountAd("archiveAd", "archive");
   document.querySelectorAll(".archive-item").forEach(btn => {
     btn.addEventListener("click", () => startArchive(btn.getAttribute("data-key")));
   });
@@ -2115,6 +2187,7 @@ async function showFinal() {
     }
 
     renderLeaderboard(board);
+    mountAd("resultsAd", "daily");
   } else if (mode === "archive") {
     $("finalSub").textContent = "Archive #" + activeDailyNumber + " — just for fun";
     $("finalBars").innerHTML = "";
@@ -2123,6 +2196,7 @@ async function showFinal() {
     $("againBtn").style.display = "none";
     $("miniStats").innerHTML = rewardHtml({ result: lastRoundResult, archive: true });
     $("leaderboard").innerHTML = '<div class="lb-note">Archive plays do not affect today\'s streak or leaderboard.</div>';
+    mountAd("resultsAd", "archive");
   } else {
     $("finalSub").textContent = "how each round went";
     $("squares").textContent = "";
@@ -2133,6 +2207,7 @@ async function showFinal() {
         '<div class="fbar" style="height:' + Math.max(8, s * .7) + 'px; background:' + scoreColor(s) +
         '; animation-delay:' + (.15 + i * .1) + 's" title="Round ' + (i + 1) + ': ' + s + '"></div>')
       .join("");
+    mountAd("resultsAd", "practice");
   }
 
   if (avg >= 75) { setTimeout(() => { sfx.fanfare(); confetti(70); }, 300); }

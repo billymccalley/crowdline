@@ -57,3 +57,9 @@ The Render disk is the app's external storage layer:
 - `DATABASE_PATH=/var/data/crowdline.sqlite3`
 
 As long as the service keeps that disk attached, player logins and game data survive restarts and deploys.
+
+## AdSense
+
+The AdSense publisher script is already included in `public/index.html` for `ca-pub-8269598864070713`.
+
+Manual ad placements are wired on the home screen, results screen, and archive modal, but they stay hidden until Google gives you ad unit slot IDs. Paste those numeric IDs into `ADSENSE_SLOTS` in `public/index.html`.
