@@ -328,6 +328,13 @@
   }
   .modal input:focus { border-color: var(--accent); }
   .auth-error { min-height: 18px; margin: -4px 0 12px; color: #c44b4b; font-size: 12px; font-weight: 700; }
+  .auth-note {
+    background: #f4f6f5; border-radius: 12px; padding: 10px 12px;
+    color: var(--ink); font-size: 13px; font-weight: 700; margin-bottom: 14px;
+  }
+  .auth-fields { display: grid; gap: 10px; margin-bottom: 12px; }
+  .auth-fields input { margin-bottom: 0; }
+  .auth-actions { display: grid; gap: 10px; }
   .modal .small-link {
     background: none; border: none; color: var(--muted); cursor: pointer;
     font: 700 12px "Trebuchet MS", sans-serif; margin-top: 10px;
@@ -707,6 +714,88 @@ const ROUNDS = [
     items:[ ["seconds in a day",30], ["words in a novel",34], ["hairs on your head",38], ["heartbeats in a year",85] ] },
   { id:"ago", a:"Just happened", b:"Ages ago",
     items:[ ["the other day",12], ["a while back",40], ["back in the day",72], ["once upon a time",95] ] },
+  { id:"browser_tabs", a:"Totally under control", b:"Panic spiral",
+    items:[ ["one tab",3], ["eight tabs",28], ["twenty-seven tabs",74], ["an unsaved document tab",94] ] },
+  { id:"text_punctuation", a:"Friendly", b:"Secretly ominous",
+    items:[ ["hey!",8], ["okay lol",20], ["sure.",72], ["we need to talk.",96] ] },
+  { id:"battery", a:"Plenty of battery", b:"Immediate charger hunt",
+    items:[ ["82%",8], ["41%",35], ["19%",75], ["3%",98] ] },
+  { id:"airport", a:"Reasonable airport behavior", b:"Full travel chaos",
+    items:[ ["arriving two hours early",12], ["wearing slip-on shoes",24], ["repacking at security",75], ["running to the gate with soup",96] ] },
+  { id:"username", a:"Normal username", b:"Extremely suspicious",
+    items:[ ["MayaReads",8], ["coolguy1998",35], ["xX_shadow_knife_Xx",82], ["admin_real_official",96] ] },
+  { id:"leftovers", a:"Still safe", b:"Do not open that container",
+    items:[ ["yesterday's pasta",12], ["three-day rice",45], ["mystery foil ball",78], ["fuzzy soup",98] ] },
+  { id:"notification", a:"Ignore it", b:"Drop everything",
+    items:[ ["app wants a review",5], ["shipping update",34], ["bank alert",85], ["mom: call me",94] ] },
+  { id:"pizza_topping", a:"Classic topping", b:"Pizza crime",
+    items:[ ["pepperoni",8], ["pineapple",55], ["pickles",78], ["loose cereal",97] ] },
+  { id:"password", a:"Guessable password", b:"Vault-level password",
+    items:[ ["password123",3], ["birthday plus exclamation point",25], ["three random words",72], ["32-character keyboard thunder",96] ] },
+  { id:"meeting", a:"Actually useful meeting", b:"Should have been an email",
+    items:[ ["emergency decision",10], ["project kickoff",35], ["status sync",72], ["meeting about future meetings",97] ] },
+  { id:"bookmark", a:"Will revisit", b:"Never seeing this again",
+    items:[ ["bank login",8], ["favorite recipe",30], ["article to read later",82], ["page 14 of search results",96] ] },
+  { id:"typo", a:"Harmless typo", b:"Message ruined",
+    items:[ ["teh instead of the",10], ["wrong your",30], ["misspelling someone's name",78], ["love you to your boss",98] ] },
+  { id:"coffee", a:"Basically bean water", b:"Rocket fuel",
+    items:[ ["decaf",5], ["office coffee",34], ["cold brew",78], ["espresso at 9pm",96] ] },
+  { id:"secret", a:"Easy to keep secret", b:"Impossible not to tell",
+    items:[ ["where the spare key is",18], ["surprise party",55], ["celebrity sighting",78], ["friend got engaged",94] ] },
+  { id:"hallway", a:"Normal hallway", b:"Haunted hallway",
+    items:[ ["school hallway at noon",8], ["hotel hallway",38], ["basement hallway",76], ["flickering hospital hallway",97] ] },
+  { id:"sale", a:"Real bargain", b:"Probably a trap",
+    items:[ ["20% off shoes",12], ["free shipping",25], ["90% off luxury watch",85], ["free car, no questions",98] ] },
+  { id:"app_permission", a:"Reasonable permission", b:"Creepy permission",
+    items:[ ["camera app wants camera",5], ["maps wants location",28], ["flashlight wants contacts",88], ["calculator wants microphone",97] ] },
+  { id:"snack_mess", a:"Clean snack", b:"Crumb disaster",
+    items:[ ["grapes",6], ["string cheese",18], ["powdered donut",80], ["nature bar in bed",95] ] },
+  { id:"movie_title", a:"Real movie title", b:"Definitely made up",
+    items:[ ["The Long Goodbye",20], ["Moonfall",38], ["Sharknado",62], ["Toaster Lawyer 4",96] ] },
+  { id:"outfit_weather", a:"Dressed perfectly", b:"Weather betrayal",
+    items:[ ["raincoat in rain",5], ["hoodie in spring",35], ["sandals in November",82], ["full suit at a water park",98] ] },
+  { id:"office_fridge", a:"Fair game", b:"Forbidden leftovers",
+    items:[ ["unlabeled seltzer",30], ["communal creamer",45], ["someone's takeout bag",82], ["birthday cake with a name on it",96] ] },
+  { id:"game_button", a:"Useful button", b:"Panic button",
+    items:[ ["jump",10], ["pause",24], ["reload",62], ["delete save file",98] ] },
+  { id:"loading", a:"I can wait", b:"I am becoming a different person",
+    items:[ ["one second",4], ["ten seconds",28], ["two minutes",75], ["stuck at 99%",96] ] },
+  { id:"backup_plan", a:"Solid backup plan", b:"Wishful thinking",
+    items:[ ["extra charger",10], ["printed tickets",18], ["I'll remember it",82], ["we'll just wing it",93] ] },
+  { id:"inconvenience", a:"Tiny annoyance", b:"Day ruined",
+    items:[ ["sock seam feels weird",35], ["forgot headphones",72], ["phone at 1%",88], ["stepped in a puddle before work",96] ] },
+  { id:"fake_natural", a:"Obviously fake", b:"Could fool anyone",
+    items:[ ["plastic fruit bowl",8], ["silk flowers",45], ["AI headshot",72], ["deepfake phone call",95] ] },
+  { id:"math_problem", a:"Easy math", b:"Ancient curse",
+    items:[ ["2 + 2",2], ["tip calculation",42], ["train leaves at 3pm",78], ["anything with logarithms",96] ] },
+  { id:"recipe", a:"Freestyle recipe", b:"Follow exactly",
+    items:[ ["smoothie",10], ["soup",35], ["bread dough",80], ["macarons",97] ] },
+  { id:"superhero_name", a:"Cool hero name", b:"Embarrassing hero name",
+    items:[ ["Night Signal",18], ["Captain Tuesday",55], ["The Damp Sock",88], ["Professor Burp Shield",97] ] },
+  { id:"elevator", a:"Normal elevator ride", b:"Deeply awkward",
+    items:[ ["standing quietly",5], ["small nod",18], ["accidental eye contact in mirror",70], ["same floor as someone you just avoided",95] ] },
+  { id:"map_icon", a:"Instantly clear", b:"Total mystery",
+    items:[ ["gas pump",5], ["fork and knife",12], ["three stacked diamonds",72], ["tiny gray blob",96] ] },
+  { id:"souvenir", a:"Keepsake", b:"Clutter with a story",
+    items:[ ["photo booth strip",12], ["local mug",35], ["airport snow globe",72], ["bag of pretty rocks",88] ] },
+  { id:"icebreaker", a:"Good icebreaker", b:"Please no",
+    items:[ ["favorite snack",12], ["dream vacation",30], ["fun fact about yourself",76], ["two truths and a lie at 8am",96] ] },
+  { id:"midnight_snack", a:"Good idea", b:"Future regret",
+    items:[ ["toast",18], ["cereal",35], ["spicy leftovers",82], ["entire freezer dessert",96] ] },
+  { id:"software_button", a:"Safe click", b:"Do not touch",
+    items:[ ["save",4], ["refresh",35], ["sync all",70], ["factory reset",99] ] },
+  { id:"boardgame_rule", a:"Obvious rule", b:"Argument incoming",
+    items:[ ["draw one card",8], ["highest number wins",18], ["free parking money",78], ["house rules from childhood",96] ] },
+  { id:"time_estimate", a:"Honest estimate", b:"Absolute lie",
+    items:[ ["about an hour",24], ["five more minutes",70], ["almost done",78], ["I'm leaving now",94] ] },
+  { id:"modern_art", a:"Obvious object", b:"Art museum label needed",
+    items:[ ["chair",5], ["empty frame",62], ["banana taped to wall",82], ["pile of receipts under a spotlight",97] ] },
+  { id:"reply_speed", a:"Chill response time", b:"Relationship evidence",
+    items:[ ["two minutes",8], ["one hour",35], ["left on read overnight",82], ["typing bubble then nothing",96] ] },
+  { id:"adult_task", a:"Tiny errand", b:"Major life admin",
+    items:[ ["buy toothpaste",8], ["return a package",42], ["call insurance",86], ["find a missing tax form",97] ] },
+  { id:"mystery_noise", a:"Ignore it", b:"Investigate immediately",
+    items:[ ["fridge hum",8], ["upstairs thump",55], ["glass breaking",92], ["smoke alarm chirp at 2am",97] ] },
 ];
 
 const QUIPS = {
@@ -910,6 +999,7 @@ async function saveStats() {
   try { await store.set("stats", JSON.stringify(statsCache)); } catch (e) {}
 }
 async function recordRound(axis, score) {
+  if (!signedIn) return;
   const st = await getStats();
   st.r += 1; st.s += score;
   if (!st.hi || score > st.hi.sc) st.hi = { ax: axis, sc: score };
@@ -917,11 +1007,13 @@ async function recordRound(axis, score) {
   await saveStats();
 }
 async function recordGame() {
+  if (!signedIn) return;
   const st = await getStats();
   st.g += 1;
   await saveStats();
 }
 async function recordDaily() {
+  if (!signedIn) return;
   const st = await getStats();
   st.d += 1;
   st.streak = (st.lastDaily === yesterdayKey()) ? st.streak + 1 : 1;
@@ -1010,18 +1102,23 @@ function showNameModal(onDone) {
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
 }
 
-function showAuthModal(mode2) {
+function showAuthModal(mode2, reason) {
   mode2 = mode2 || "login";
   const create = mode2 === "signup";
+  reason = reason || (create ? "Save your stats and daily streak across devices." : "Pick up your stats and streak anywhere.");
   openModal(
     '<div class="big">🔐</div>' +
     '<h3>' + (create ? "Create account" : "Sign in") + '</h3>' +
-    '<p>' + (create ? "Save your stats and daily streak across devices." : "Pick up your stats and streak anywhere.") + '</p>' +
-    '<input id="authName" maxlength="14" placeholder="name" autocomplete="username" />' +
-    '<input id="authPass" type="password" minlength="6" placeholder="password" autocomplete="' + (create ? "new-password" : "current-password") + '" />' +
+    '<div class="auth-note">' + esc(reason) + '</div>' +
+    '<div class="auth-fields">' +
+      '<input id="authName" maxlength="14" placeholder="name" autocomplete="username" />' +
+      '<input id="authPass" type="password" minlength="6" placeholder="password" autocomplete="' + (create ? "new-password" : "current-password") + '" />' +
+    '</div>' +
     '<div class="auth-error" id="authError"></div>' +
-    '<button class="btn" id="authOk">' + (create ? "Create account" : "Sign in") + '</button>' +
-    '<button class="small-link" id="authSwitch">' + (create ? "Already have one? Sign in" : "New here? Create account") + '</button>'
+    '<div class="auth-actions">' +
+      '<button class="btn" id="authOk">' + (create ? "Create account" : "Sign in") + '</button>' +
+      '<button class="small-link" id="authSwitch">' + (create ? "Already have one? Sign in" : "New here? Create account") + '</button>' +
+    '</div>'
   );
   const nameInput = $("authName");
   const passInput = $("authPass");
@@ -1029,7 +1126,7 @@ function showAuthModal(mode2) {
   setTimeout(() => nameInput.focus(), 100);
   const submit = () => submitAuth(create ? "signup" : "login");
   $("authOk").addEventListener("click", submit);
-  $("authSwitch").addEventListener("click", () => { sfx.click(); showAuthModal(create ? "login" : "signup"); });
+  $("authSwitch").addEventListener("click", () => { sfx.click(); showAuthModal(create ? "login" : "signup", reason); });
   [nameInput, passInput].forEach(input => input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); }));
 }
 
@@ -1103,9 +1200,24 @@ function toggleAuth() {
   else { sfx.click(); showAuthModal("login"); }
 }
 
+function hasGuestPracticeRun() {
+  try { return localStorage.getItem("ss:guestPracticeDone") === "1"; } catch (e) { return false; }
+}
+function markGuestPracticeRun() {
+  try { localStorage.setItem("ss:guestPracticeDone", "1"); } catch (e) {}
+}
+function requireSignIn(reason) {
+  showAuthModal("signup", reason);
+}
+
 /* ================= GAME FLOW ================= */
 function startQuick() {
   sfx.click();
+  if (!signedIn && hasGuestPracticeRun()) {
+    requireSignIn("Create a free account to play more practice rounds and keep your history.");
+    return;
+  }
+  if (!signedIn) markGuestPracticeRun();
   mode = "quick";
   gameRounds = [...ROUNDS].sort(() => Math.random() - .5).slice(0, 5);
   roundIdx = 0; scores = [];
@@ -1411,13 +1523,17 @@ async function showFinal() {
     $("shareBtn").style.display = "";
     $("againBtn").style.display = "none";
 
-    const st = await getStats();
-    const streak = currentStreak(st);
-    const avgSync = st.r ? Math.round(st.s / st.r) : 0;
-    $("miniStats").innerHTML =
-      (streak > 0 ? "🔥 " + streak + "-day streak &nbsp;·&nbsp; " : "") +
-      '<span style="color:' + scoreColor(avgSync) + '; font-weight:700;">' + avgSync + '</span> avg sync' +
-      " &nbsp;·&nbsp; " + st.d + (st.d === 1 ? " daily" : " dailies");
+    if (signedIn) {
+      const st = await getStats();
+      const streak = currentStreak(st);
+      const avgSync = st.r ? Math.round(st.s / st.r) : 0;
+      $("miniStats").innerHTML =
+        (streak > 0 ? "🔥 " + streak + "-day streak &nbsp;·&nbsp; " : "") +
+        '<span style="color:' + scoreColor(avgSync) + '; font-weight:700;">' + avgSync + '</span> avg sync' +
+        " &nbsp;·&nbsp; " + st.d + (st.d === 1 ? " daily" : " dailies");
+    } else {
+      $("miniStats").textContent = "Sign in to save streaks, stats, and future practice rounds.";
+    }
 
     renderLeaderboard();
   } else {
@@ -1499,6 +1615,10 @@ async function shareDaily() {
 /* ================= STATS SCREEN ================= */
 async function showStats() {
   sfx.click();
+  if (!signedIn) {
+    requireSignIn("Sign in to unlock stats, streaks, and your best and boldest lines.");
+    return;
+  }
   const st = await getStats();
   const body = $("statsBody");
   if (st.r === 0) {
