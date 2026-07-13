@@ -88,6 +88,12 @@
     transition: color .15s;
   }
   .stats-link:hover { color: var(--ink); }
+  .account-line {
+    display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+    margin-top: 4px; color: var(--muted); font-size: 12px;
+  }
+  .account-line strong { color: var(--ink); }
+  .account-line .stats-link { margin-top: 0; }
 
   .btn {
     font: 700 16px "Trebuchet MS", sans-serif;
@@ -321,6 +327,12 @@
     transition: border-color .15s;
   }
   .modal input:focus { border-color: var(--accent); }
+  .auth-error { min-height: 18px; margin: -4px 0 12px; color: #c44b4b; font-size: 12px; font-weight: 700; }
+  .modal .small-link {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font: 700 12px "Trebuchet MS", sans-serif; margin-top: 10px;
+  }
+  .modal .small-link:hover { color: var(--ink); }
 
   .confetti { position: fixed; inset: 0; pointer-events: none; z-index: 80; overflow: hidden; }
   .cf { position: absolute; top: -14px; width: 9px; height: 13px; border-radius: 2px; }
@@ -368,6 +380,10 @@
       </div>
       <button class="btn secondary" id="startBtn">Practice — 5 rounds</button>
       <button class="stats-link" id="statsBtn">📊 Stats</button>
+      <div class="account-line">
+        <span id="authStatus">Playing as guest</span>
+        <button class="stats-link" id="authBtn">Sign in</button>
+      </div>
     </div>
   </div>
 
@@ -453,6 +469,15 @@ const store = {
   _playerId() {
     try { return localStorage.getItem("ss:pref:pid") || ""; } catch (e) { return ""; }
   },
+  _token() {
+    try { return localStorage.getItem("ss:auth:token") || ""; } catch (e) { return ""; }
+  },
+  _headers(json) {
+    const headers = json ? { "Content-Type": "application/json" } : {};
+    const token = this._token();
+    if (token) headers.Authorization = "Bearer " + token;
+    return headers;
+  },
   _url(key, shared) {
     if (shared) return "/api/store/shared/" + encodeURIComponent(key);
     const pid = this._playerId();
@@ -464,7 +489,7 @@ const store = {
       const url = this._url(key, shared);
       if (url) {
         try {
-          const res = await fetch(url);
+          const res = await fetch(url, { headers: this._headers(false) });
           if (res.ok) return await res.json();
           if (res.status === 404) return null;
         } catch (e) {}
@@ -480,7 +505,7 @@ const store = {
         try {
           const res = await fetch(url, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: this._headers(true),
             body: JSON.stringify({ value })
           });
           if (res.ok) return await res.json();
@@ -738,13 +763,14 @@ let gameRounds = [], roundIdx = 0, scores = [], placed = {}, revealed = false;
 let dailySquares = "", dailyDone = null;
 let dragging = false;
 let playerName = "", playerId = "";
+let authToken = "", signedIn = false;
 let countdownTimer = null;
 
 /* ================= STORAGE ================= */
 async function getCrowd(roundId) {
   if (store.mode === "server") {
     try {
-      const res = await fetch("/api/crowd/" + encodeURIComponent(roundId));
+      const res = await fetch("/api/crowd/" + encodeURIComponent(roundId), { headers: store._headers(false) });
       if (res.ok) return await res.json();
     } catch (e) {}
   }
@@ -758,7 +784,7 @@ async function addToCrowd(roundId, placements) {
     try {
       const res = await fetch("/api/crowd/" + encodeURIComponent(roundId), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: store._headers(true),
         body: JSON.stringify({ pid: playerId, placements })
       });
       if (res.ok) return;
@@ -783,7 +809,7 @@ function crowdAvg(seedPos, entry) {
 async function getLeaderboard(key) {
   if (store.mode === "server") {
     try {
-      const res = await fetch("/api/leaderboard/" + encodeURIComponent(key));
+      const res = await fetch("/api/leaderboard/" + encodeURIComponent(key), { headers: store._headers(false) });
       if (res.ok) return await res.json();
     } catch (e) {}
   }
@@ -797,7 +823,7 @@ async function postToLeaderboard(score, squares) {
     try {
       const res = await fetch("/api/leaderboard/" + encodeURIComponent(todayKey()), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: store._headers(true),
         body: JSON.stringify({ pid: playerId, name: playerName, score, squares, dailyNumber: dailyNumber() })
       });
       if (res.ok) return;
@@ -817,6 +843,28 @@ async function postToLeaderboard(score, squares) {
 /* ---- identity ---- */
 async function loadIdentity() {
   try {
+    authToken = localStorage.getItem("ss:auth:token") || "";
+  } catch (e) { authToken = ""; }
+  if (authToken && store.mode === "server") {
+    try {
+      const res = await fetch("/api/auth/me", { headers: store._headers(false) });
+      if (res.ok) {
+        const me = await res.json();
+        signedIn = true;
+        playerId = me.pid;
+        playerName = me.name;
+        try {
+          localStorage.setItem("ss:pref:pid", playerId);
+          localStorage.setItem("ss:pref:name", playerName);
+        } catch (e) {}
+        renderAuthStatus();
+        return;
+      }
+    } catch (e) {}
+    authToken = ""; signedIn = false;
+    try { localStorage.removeItem("ss:auth:token"); } catch (e) {}
+  }
+  try {
     const r = await store.get("pref:pid");
     if (r) playerId = r.value;
   } catch (e) {}
@@ -828,9 +876,22 @@ async function loadIdentity() {
     const r = await store.get("pref:name");
     if (r) playerName = r.value;
   } catch (e) {}
+  renderAuthStatus();
 }
 function cleanName(s) {
   return s.replace(/[<>&"']/g, "").trim().slice(0, 14);
+}
+function renderAuthStatus() {
+  const status = $("authStatus");
+  const btn = $("authBtn");
+  if (!status || !btn) return;
+  if (signedIn) {
+    status.innerHTML = "Signed in as <strong>" + esc(playerName) + "</strong>";
+    btn.textContent = "Sign out";
+  } else {
+    status.textContent = "Playing as guest";
+    btn.textContent = "Sign in";
+  }
 }
 
 /* ---- personal stats ---- */
@@ -947,6 +1008,99 @@ function showNameModal(onDone) {
   };
   $("nameOk").addEventListener("click", go);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+}
+
+function showAuthModal(mode2) {
+  mode2 = mode2 || "login";
+  const create = mode2 === "signup";
+  openModal(
+    '<div class="big">🔐</div>' +
+    '<h3>' + (create ? "Create account" : "Sign in") + '</h3>' +
+    '<p>' + (create ? "Save your stats and daily streak across devices." : "Pick up your stats and streak anywhere.") + '</p>' +
+    '<input id="authName" maxlength="14" placeholder="name" autocomplete="username" />' +
+    '<input id="authPass" type="password" minlength="6" placeholder="password" autocomplete="' + (create ? "new-password" : "current-password") + '" />' +
+    '<div class="auth-error" id="authError"></div>' +
+    '<button class="btn" id="authOk">' + (create ? "Create account" : "Sign in") + '</button>' +
+    '<button class="small-link" id="authSwitch">' + (create ? "Already have one? Sign in" : "New here? Create account") + '</button>'
+  );
+  const nameInput = $("authName");
+  const passInput = $("authPass");
+  if (playerName) nameInput.value = playerName;
+  setTimeout(() => nameInput.focus(), 100);
+  const submit = () => submitAuth(create ? "signup" : "login");
+  $("authOk").addEventListener("click", submit);
+  $("authSwitch").addEventListener("click", () => { sfx.click(); showAuthModal(create ? "login" : "signup"); });
+  [nameInput, passInput].forEach(input => input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); }));
+}
+
+async function submitAuth(action) {
+  const err = $("authError");
+  const btn = $("authOk");
+  const name = cleanName($("authName").value);
+  const password = $("authPass").value;
+  if (!name || password.length < 6) {
+    err.textContent = "Use a name and a password with at least 6 characters.";
+    return;
+  }
+  btn.disabled = true;
+  err.textContent = "";
+  try {
+    const res = await fetch("/api/auth/" + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, password })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      err.textContent = data.error || "That did not work. Try again.";
+      btn.disabled = false;
+      return;
+    }
+    authToken = data.token;
+    signedIn = true;
+    playerId = data.pid;
+    playerName = data.name;
+    statsCache = null;
+    try {
+      localStorage.setItem("ss:auth:token", authToken);
+      localStorage.setItem("ss:pref:pid", playerId);
+      localStorage.setItem("ss:pref:name", playerName);
+    } catch (e) {}
+    if (action === "signup") await migrateLocalProgress();
+    sfx.click();
+    closeModal();
+    renderAuthStatus();
+    refreshDailyTag();
+  } catch (e) {
+    err.textContent = "Could not reach the server.";
+    btn.disabled = false;
+  }
+}
+
+async function migrateLocalProgress() {
+  try {
+    const stats = localStorage.getItem("ss:stats");
+    if (stats) await store.set("stats", stats);
+    const daily = localStorage.getItem("ss:daily:" + todayKey());
+    if (daily) await store.set("daily:" + todayKey(), daily);
+  } catch (e) {}
+}
+
+async function signOut() {
+  sfx.click();
+  try {
+    await fetch("/api/auth/logout", { method: "POST", headers: store._headers(false) });
+  } catch (e) {}
+  authToken = ""; signedIn = false; statsCache = null;
+  try { localStorage.removeItem("ss:auth:token"); } catch (e) {}
+  playerId = ""; playerName = ""; dailyDone = null;
+  await loadIdentity();
+  refreshDailyTag();
+}
+
+function toggleAuth() {
+  if (signedIn) signOut();
+  else { sfx.click(); showAuthModal("login"); }
 }
 
 /* ================= GAME FLOW ================= */
@@ -1395,6 +1549,7 @@ $("homeBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); s
 $("shareBtn").addEventListener("click", shareDaily);
 $("statsBtn").addEventListener("click", showStats);
 $("statsBackBtn").addEventListener("click", () => { sfx.click(); refreshDailyTag(); show("title"); });
+$("authBtn").addEventListener("click", toggleAuth);
 $("soundBtn").addEventListener("click", toggleMute);
 document.addEventListener("pointerdown", () => { try { ac(); } catch (e) {} }, { once: true });
 loadMute();

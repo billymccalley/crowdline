@@ -21,6 +21,8 @@ python app.py
 
 The backend persists local game data in `data/crowdline.sqlite3`.
 
+Accounts, session tokens, player stats, daily locks, leaderboard entries, and crowd votes are all stored in the same SQLite database.
+
 ## Deploy on Render
 
 This repo includes `render.yaml` for a Render Blueprint. It creates:
@@ -32,3 +34,10 @@ This repo includes `render.yaml` for a Render Blueprint. It creates:
 In Render, create a new Blueprint from the repo and let it use `render.yaml`. The app health check is `/api/health`.
 
 Render's persistent disk keeps the SQLite database across deploys. For a much larger public launch, the next database step would be Render Postgres.
+
+The Render disk is the app's external storage layer:
+
+- `DATA_DIR=/var/data`
+- `DATABASE_PATH=/var/data/crowdline.sqlite3`
+
+As long as the service keeps that disk attached, player logins and game data survive restarts and deploys.

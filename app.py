@@ -2,9 +2,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 import json
+import hashlib
+import hmac
 import mimetypes
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -21,6 +24,7 @@ WRITE_LIMIT_PER_MINUTE = int(os.environ.get("WRITE_LIMIT_PER_MINUTE", "45"))
 
 ID_RE = re.compile(r"^[a-zA-Z0-9:_-]+$")
 DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+LOGIN_RE = re.compile(r"^[a-zA-Z0-9_ -]+$")
 DB_LOCK = threading.RLock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
@@ -55,6 +59,23 @@ def init_db():
               PRIMARY KEY (scope, player_id, key)
             );
 
+            CREATE TABLE IF NOT EXISTS users (
+              id TEXT PRIMARY KEY,
+              login_name TEXT NOT NULL UNIQUE,
+              display_name TEXT NOT NULL,
+              password_salt TEXT NOT NULL,
+              password_hash TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+              token_hash TEXT PRIMARY KEY,
+              user_id TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              last_seen_at TEXT NOT NULL,
+              FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS crowd_votes (
               round_id TEXT NOT NULL,
               player_id TEXT NOT NULL,
@@ -80,6 +101,9 @@ def init_db():
 
             CREATE INDEX IF NOT EXISTS idx_daily_results_board
               ON daily_results (day_key, score DESC, created_at ASC);
+
+            CREATE INDEX IF NOT EXISTS idx_sessions_user
+              ON sessions (user_id);
             """
         )
         DB.commit()
@@ -103,6 +127,23 @@ def clean_player_name(value):
         text = text.replace(char, "")
     text = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127)
     return text.strip()[:14] or "Player"
+
+
+def clean_login_name(value):
+    text = clean_player_name(value)
+    if len(text) < 3 or not LOGIN_RE.match(text):
+        return ""
+    return text
+
+
+def password_hash(password, salt_hex=None):
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    hashed = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"), salt, 210000)
+    return salt.hex(), hashed.hex()
+
+
+def hash_token(token):
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
 
 
 def clean_squares(value):
@@ -193,6 +234,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True})
             return
 
+        if len(parts) >= 2 and parts[1] == "auth":
+            self.handle_auth(parts)
+            return
+
         if len(parts) >= 4 and parts[1] == "store" and self.command in {"GET", "PUT"}:
             self.handle_store(parts)
             return
@@ -204,6 +249,122 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[1] == "leaderboard":
             self.handle_leaderboard(parts[2])
             return
+
+        self.send_error_json(404, "Not found")
+
+    def bearer_token(self):
+        header = self.headers.get("Authorization", "")
+        if not header.lower().startswith("bearer "):
+            return ""
+        return header.split(" ", 1)[1].strip()
+
+    def auth_user(self):
+        token = self.bearer_token()
+        if not token:
+            return None
+        row = DB.execute(
+            """
+            SELECT users.id, users.display_name
+            FROM sessions
+            JOIN users ON users.id = sessions.user_id
+            WHERE sessions.token_hash = ?
+            """,
+            (hash_token(token),),
+        ).fetchone()
+        if row:
+            DB.execute(
+                "UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?",
+                (now_iso(), hash_token(token)),
+            )
+            DB.commit()
+            return {"pid": row["id"], "name": row["display_name"]}
+        return None
+
+    def create_session(self, user_id):
+        token = secrets.token_urlsafe(32)
+        timestamp = now_iso()
+        DB.execute(
+            """
+            INSERT INTO sessions (token_hash, user_id, created_at, last_seen_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (hash_token(token), user_id, timestamp, timestamp),
+        )
+        return token
+
+    def handle_auth(self, parts):
+        action = parts[2] if len(parts) > 2 else ""
+        with DB_LOCK:
+            if self.command == "GET" and action == "me":
+                user = self.auth_user()
+                if not user:
+                    self.send_error_json(401, "Not signed in")
+                    return
+                self.send_json(200, user)
+                return
+
+            if self.command == "POST" and action in {"signup", "login"}:
+                body = self.read_json()
+                name = clean_login_name(body.get("name"))
+                password = str(body.get("password") or "")
+                if not name or len(password) < 6:
+                    self.send_error_json(400, "Use a name and a password with at least 6 characters")
+                    return
+
+                login_name = name.lower()
+                if action == "signup":
+                    existing = DB.execute(
+                        "SELECT id FROM users WHERE login_name = ?",
+                        (login_name,),
+                    ).fetchone()
+                    if existing:
+                        self.send_error_json(409, "That name is already taken")
+                        return
+
+                    user_id = "u_" + secrets.token_urlsafe(12).replace("-", "_")
+                    salt, hashed = password_hash(password)
+                    DB.execute(
+                        """
+                        INSERT INTO users
+                          (id, login_name, display_name, password_salt, password_hash, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (user_id, login_name, name, salt, hashed, now_iso()),
+                    )
+                    token = self.create_session(user_id)
+                    DB.commit()
+                    self.send_json(200, {"token": token, "pid": user_id, "name": name})
+                    return
+
+                row = DB.execute(
+                    """
+                    SELECT id, display_name, password_salt, password_hash
+                    FROM users
+                    WHERE login_name = ?
+                    """,
+                    (login_name,),
+                ).fetchone()
+                if not row:
+                    self.send_error_json(401, "Name or password did not match")
+                    return
+
+                _, hashed = password_hash(password, row["password_salt"])
+                if not hmac.compare_digest(hashed, row["password_hash"]):
+                    self.send_error_json(401, "Name or password did not match")
+                    return
+
+                token = self.create_session(row["id"])
+                DB.commit()
+                self.send_json(200, {"token": token, "pid": row["id"], "name": row["display_name"]})
+                return
+
+            if self.command == "POST" and action == "logout":
+                token = self.bearer_token()
+                if token:
+                    DB.execute("DELETE FROM sessions WHERE token_hash = ?", (hash_token(token),))
+                    DB.commit()
+                self.send_json(200, {"ok": True})
+                return
 
         self.send_error_json(404, "Not found")
 
@@ -221,6 +382,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         with DB_LOCK:
+            user = self.auth_user() if scope == "player" else None
+            if user and player_id != user["pid"]:
+                self.send_error_json(403, "Signed-in storage belongs to another player")
+                return
+
             if self.command == "GET":
                 row = DB.execute(
                     """
@@ -294,6 +460,9 @@ class Handler(BaseHTTPRequestHandler):
 
             body = self.read_json()
             player_id = clean_id(body.get("pid"), 40)
+            user = self.auth_user()
+            if user:
+                player_id = user["pid"]
             placements = body.get("placements")
             if not player_id or not isinstance(placements, dict):
                 self.send_error_json(400, "Invalid placements")
@@ -339,6 +508,10 @@ class Handler(BaseHTTPRequestHandler):
 
             body = self.read_json()
             pid = clean_id(body.get("pid"), 40)
+            user = self.auth_user()
+            if user:
+                pid = user["pid"]
+                body["name"] = user["name"]
             score = clean_score(body.get("score"))
             if not pid or score is None:
                 self.send_error_json(400, "Invalid leaderboard entry")
