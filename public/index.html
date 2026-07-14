@@ -454,8 +454,12 @@
     margin-bottom: 12px;
   }
   .lb-row .rank { font-weight: 700; color: var(--muted); width: 24px; font-size: 13px; }
-  .lb-row .nm { font-weight: 700; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lb-row .sq { font-size: 12px; letter-spacing: 1px; }
+  .lb-row .nm { font-weight: 700; font-size: 14px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-row .sq {
+    flex: 0 0 58px;
+    font-size: 12px; letter-spacing: 1px;
+    overflow: hidden; text-align: right; white-space: nowrap;
+  }
   .lb-row .sc { font-weight: 700; font-size: 15px; width: 34px; text-align: right; }
   .report-btn {
     border: none; background: transparent; color: var(--muted);
@@ -1488,6 +1492,7 @@ async function getLeaderboard(key) {
   } catch (e) { return []; }
 }
 async function postToLeaderboard(score, squares) {
+  squares = cleanSquares(squares);
   if (store.mode === "server") {
     try {
       const key = activeDailyKey || todayKey();
@@ -1560,6 +1565,10 @@ const PUBLIC_NAME_BLOCKLIST = [
 const NAME_FILTER_CHARS = { "0":"o", "1":"i", "!":"i", "3":"e", "4":"a", "@":"a", "5":"s", "$":"s", "7":"t", "+":"t", "8":"b" };
 function cleanName(s) {
   return s.replace(/[<>&"']/g, "").trim().slice(0, 14);
+}
+function cleanSquares(s) {
+  const allowed = new Set(["\u{1F7E9}", "\u{1F7E8}", "\u{1F7E7}", "\u{1F7E5}"]);
+  return Array.from(String(s || "")).filter(ch => allowed.has(ch)).slice(0, 4).join("");
 }
 function normalizedPublicName(s) {
   return String(s || "").toLowerCase().replace(/[0134578!@$+]/g, ch => NAME_FILTER_CHARS[ch] || ch).replace(/[^a-z0-9]/g, "");
@@ -2332,7 +2341,7 @@ async function showFinal() {
   if (mode === "daily") {
     $("finalSub").textContent = "Daily #" + activeDailyNumber + " — new line at midnight";
     $("finalBars").innerHTML = "";
-    $("squares").textContent = (dailyDone && dailyDone.squares) || dailySquares;
+    $("squares").textContent = cleanSquares((dailyDone && dailyDone.squares) || dailySquares);
     $("shareBtn").style.display = "";
     $("againBtn").style.display = "none";
     const board = await getLeaderboard(activeDailyKey || todayKey());
@@ -2358,7 +2367,7 @@ async function showFinal() {
   } else if (mode === "archive") {
     $("finalSub").textContent = "Archive #" + activeDailyNumber + " — just for fun";
     $("finalBars").innerHTML = "";
-    $("squares").textContent = dailySquares;
+    $("squares").textContent = cleanSquares(dailySquares);
     $("shareBtn").style.display = "none";
     $("againBtn").style.display = "none";
     $("miniStats").innerHTML = rewardHtml({ result: lastRoundResult, archive: true });
@@ -2418,10 +2427,11 @@ async function renderLeaderboard(board) {
     const me = e2.pid === playerId ? " me" : "";
     const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : (i + 1) + ".";
     const shownName = publicDisplayName(e2.n) || "Player";
+    const shownSquares = cleanSquares(e2.q);
     return '<div class="lb-row' + me + (pinned ? " pinned" : "") + '" style="animation-delay:' + (i * .05) + 's">' +
       '<span class="rank">' + medal + '</span>' +
       '<span class="nm">' + esc(shownName) + '</span>' +
-      '<span class="sq">' + esc(e2.q) + '</span>' +
+      '<span class="sq">' + esc(shownSquares) + '</span>' +
       '<span class="sc" style="color:' + scoreColor(e2.s) + '">' + e2.s + '</span>' +
       '<button class="report-btn" type="button" title="Report name" data-report="' + esc(shownName) + '">!</button>' +
       '</div>';
@@ -2608,7 +2618,7 @@ async function shareDaily(sourceBtn) {
   const key = activeDailyKey || todayKey();
   const r = await dailyRoundForKey(key);
   const score = dailyDone ? dailyDone.score : (scores[scores.length - 1] || 0);
-  const sq = (dailyDone && dailyDone.squares) || dailySquares || "";
+  const sq = cleanSquares((dailyDone && dailyDone.squares) || dailySquares || "");
   const st = signedIn ? await getStats() : Object.assign({}, EMPTY_STATS);
   const streak = signedIn ? currentStreak(st) : 0;
   const board = await getLeaderboard(key);

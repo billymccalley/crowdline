@@ -402,8 +402,8 @@ def hash_token(token):
 
 def clean_squares(value):
     text = str(value or "")
-    text = "".join(ch for ch in text if ord(ch) >= 32 and ord(ch) != 127)
-    return text.strip()[:32]
+    allowed = {"\U0001F7E9", "\U0001F7E8", "\U0001F7E7", "\U0001F7E5"}
+    return "".join(ch for ch in text if ch in allowed)[:4]
 
 
 def clean_score(value):
@@ -1245,7 +1245,7 @@ class Handler(BaseHTTPRequestHandler):
             (day_key,),
         ).fetchall()
         return [
-            {"pid": row["player_id"], "n": public_player_name(row["name"]), "s": row["score"], "q": row["squares"]}
+            {"pid": row["player_id"], "n": public_player_name(row["name"]), "s": row["score"], "q": clean_squares(row["squares"])}
             for row in rows
         ]
 
