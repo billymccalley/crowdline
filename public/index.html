@@ -1350,16 +1350,31 @@ function dateKey(d) {
 }
 function todayKey() { return dateKey(new Date()); }
 function yesterdayKey() { const d = new Date(); d.setDate(d.getDate() - 1); return dateKey(d); }
+function maxWorldTodayKey() { return dateKey(new Date(Date.now() + 14 * 60 * 60 * 1000)); }
+function isValidDateKey(key) {
+  const m = String(key || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const y = Number(m[1]), mo = Number(m[2]), da = Number(m[3]);
+  const d = new Date(y, mo - 1, da);
+  return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === da;
+}
+function isPublicDayAvailable(key) {
+  return isValidDateKey(key) && key <= maxWorldTodayKey();
+}
 function dailyNumberForDate(d) {
   const utc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
   return Math.floor((utc - EPOCH) / 86400000) + 1;
 }
 function dailyNumber() { return dailyNumberForDate(new Date()); }
 function dateFromKey(key) {
+  if (!isValidDateKey(key)) return new Date(NaN);
   const parts = String(key).split("-").map(Number);
   return new Date(parts[0], parts[1] - 1, parts[2]);
 }
-function dailyNumberForKey(key) { return dailyNumberForDate(dateFromKey(key)); }
+function dailyNumberForKey(key) {
+  const d = dateFromKey(key);
+  return Number.isNaN(d.getTime()) ? 0 : dailyNumberForDate(d);
+}
 function roundById(id) { return ROUNDS.find(r => r.id === id) || ROUNDS[0]; }
 function stableHash(value) {
   let h = 2166136261;
@@ -1398,17 +1413,22 @@ function dailyRound(n) {
 }
 async function dailyRoundForKey(key) {
   const dayKey = key || todayKey();
+  if (!isPublicDayAvailable(dayKey)) throw new Error("That Crowdline is not unlocked yet.");
   if (dailyAssignmentCache[dayKey]) return dailyAssignmentCache[dayKey];
+  let serverRejection = "";
   if (store.mode === "server") {
     try {
-      const data = await fetch("/api/daily/" + encodeURIComponent(dayKey), { headers: store._headers(false) }).then(r => r.json());
+      const res = await fetch("/api/daily/" + encodeURIComponent(dayKey), { headers: store._headers(false) });
+      const data = await res.json().catch(() => ({}));
       if (data && data.roundId) {
         const round = roundById(data.roundId);
         dailyAssignmentCache[dayKey] = round;
         return round;
       }
+      if (!res.ok) serverRejection = data.error || "Daily unavailable";
     } catch (e) {}
   }
+  if (serverRejection) throw new Error(serverRejection);
   await loadPublicCuration();
   const round = dailyRound(dailyNumberForKey(dayKey));
   dailyAssignmentCache[dayKey] = round;
@@ -1488,6 +1508,7 @@ function crowdAvg(seedPos, entry) {
 
 /* ---- leaderboard (shared, per-day) ---- */
 async function getLeaderboard(key) {
+  if (!isPublicDayAvailable(key)) return [];
   if (store.mode === "server") {
     try {
       const res = await fetch("/api/leaderboard/" + encodeURIComponent(key), { headers: store._headers(false) });

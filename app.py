@@ -94,6 +94,14 @@ def today_key():
     return dt.date.today().isoformat()
 
 
+def max_world_today():
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=14)).date()
+
+
+def max_world_today_key():
+    return max_world_today().isoformat()
+
+
 def date_key_for_offset(days_ahead):
     return (dt.date.today() + dt.timedelta(days=days_ahead)).isoformat()
 
@@ -223,6 +231,7 @@ def init_db():
               ON daily_rounds (round_id);
             """
         )
+        cleanup_future_public_data()
         DB.commit()
 
 
@@ -253,6 +262,35 @@ def date_for_key(day_key):
         return dt.date(year, month, day)
     except (TypeError, ValueError):
         return None
+
+
+def is_public_day_available(day_key):
+    date_value = date_for_key(day_key)
+    return bool(date_value and date_value <= max_world_today())
+
+
+def cleanup_future_public_data():
+    max_key = max_world_today_key()
+    far_future_key = date_key_for_offset(31)
+    for table in ("daily_results",):
+        rows = DB.execute(f"SELECT DISTINCT day_key FROM {table}").fetchall()
+        for row in rows:
+            day_key = row["day_key"]
+            if not date_for_key(day_key) or day_key > max_key:
+                DB.execute(f"DELETE FROM {table} WHERE day_key = ?", (day_key,))
+
+    rows = DB.execute("SELECT DISTINCT key FROM kv_store WHERE key LIKE 'daily:%' OR key LIKE 'archive:%'").fetchall()
+    for row in rows:
+        key = row["key"]
+        day_key = key.split(":", 1)[1]
+        if not date_for_key(day_key) or day_key > max_key:
+            DB.execute("DELETE FROM kv_store WHERE key = ?", (key,))
+
+    rows = DB.execute("SELECT day_key FROM daily_rounds").fetchall()
+    for row in rows:
+        day_key = row["day_key"]
+        if not date_for_key(day_key) or day_key > far_future_key:
+            DB.execute("DELETE FROM daily_rounds WHERE day_key = ?", (day_key,))
 
 
 def stable_hash(value):
@@ -771,8 +809,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "GET":
             self.send_error_json(405, "Method not allowed")
             return
+        day_key = clean_day_key(day_key_raw)
+        if not day_key or daily_number_for_key(day_key) < 1:
+            self.send_error_json(400, "Invalid daily key")
+            return
+        if not is_public_day_available(day_key):
+            self.send_error_json(403, "That Crowdline is not unlocked yet")
+            return
         with DB_LOCK:
-            row = locked_daily_round(day_key_raw)
+            row = locked_daily_round(day_key)
             if not row:
                 self.send_error_json(400, "Invalid daily key")
                 return
@@ -1238,8 +1283,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_leaderboard(self, day_key_raw):
         day_key = clean_day_key(day_key_raw)
-        if not day_key:
+        if not day_key or daily_number_for_key(day_key) < 1:
             self.send_error_json(400, "Invalid leaderboard key")
+            return
+        if not is_public_day_available(day_key):
+            self.send_error_json(403, "That leaderboard is not unlocked yet")
             return
 
         with DB_LOCK:
