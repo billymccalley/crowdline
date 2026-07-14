@@ -467,6 +467,14 @@
   }
   .report-btn:hover { background: #f4f6f5; color: var(--ink); }
   .lb-note { text-align: center; font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .lb-save {
+    display: block; margin: 10px auto 0;
+    border: none; border-radius: 999px; background: #fff; color: var(--accent);
+    cursor: pointer; padding: 9px 14px;
+    font: 700 12px "Trebuchet MS", sans-serif;
+    box-shadow: 0 2px 8px rgba(38,50,58,.08);
+  }
+  .lb-save:hover { filter: brightness(.98); }
 
   .final-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
@@ -1491,25 +1499,35 @@ async function getLeaderboard(key) {
     return r ? JSON.parse(r.value) : [];
   } catch (e) { return []; }
 }
-async function postToLeaderboard(score, squares) {
+async function postToLeaderboard(score, squares, placements, keyOverride, numberOverride) {
+  if (!signedIn) return;
   squares = cleanSquares(squares);
   if (store.mode === "server") {
     try {
-      const key = activeDailyKey || todayKey();
-      const num = activeDailyNumber || dailyNumber();
+      const key = keyOverride || activeDailyKey || todayKey();
+      const num = numberOverride || activeDailyNumber || dailyNumber();
+      const round = await dailyRoundForKey(key);
       const res = await fetch("/api/leaderboard/" + encodeURIComponent(key), {
         method: "POST",
         headers: store._headers(true),
-        body: JSON.stringify({ pid: playerId, name: signedIn ? (publicDisplayName(playerName) || "Player") : "Guest", score, squares, dailyNumber: num })
+        body: JSON.stringify({
+          pid: playerId,
+          name: publicDisplayName(playerName) || "Player",
+          score,
+          squares,
+          dailyNumber: num,
+          roundId: round.id,
+          placements: placements || {}
+        })
       });
       if (res.ok) return;
     } catch (e) {}
   }
   try {
-    const key = todayKey();
+    const key = keyOverride || todayKey();
     const board = await getLeaderboard(key);
     if (!board.some(e => e.pid === playerId)) {
-      board.push({ pid: playerId, n: signedIn ? (publicDisplayName(playerName) || "Player") : "Guest", s: score, q: squares });
+      board.push({ pid: playerId, n: publicDisplayName(playerName) || "Player", s: score, q: squares });
       board.sort((a, b) => b.s - a.s);
       await store.set("lb:" + key, JSON.stringify(board.slice(0, 50)), true);
     }
@@ -1815,6 +1833,7 @@ async function submitAuth(action) {
     closeModal();
     renderAuthStatus();
     refreshDailyTag();
+    await syncSignedInDailyResult();
     const next = pendingAuthAction;
     pendingAuthAction = null;
     if (next) next();
@@ -1831,6 +1850,26 @@ async function migrateLocalProgress() {
     const daily = localStorage.getItem("ss:daily:" + todayKey());
     if (daily) await store.set("daily:" + todayKey(), daily);
   } catch (e) {}
+}
+
+async function syncSignedInDailyResult() {
+  if (!signedIn) return;
+  let done = dailyDone;
+  try {
+    const r = await store.get("daily:" + todayKey());
+    if (r) done = JSON.parse(r.value);
+  } catch (e) {}
+  if (!done || done.score === undefined) return;
+  const key = todayKey();
+  try {
+    const board = await getLeaderboard(key);
+    if (board.some(entry => entry.pid === playerId)) return;
+  } catch (e) {}
+  await postToLeaderboard(done.score, done.squares || "", done.placements || {}, key, done.n || dailyNumber());
+  if (mode === "daily" || mode === "archive") {
+    const board = await getLeaderboard(key);
+    renderLeaderboard(board);
+  }
 }
 
 async function signOut() {
@@ -1866,7 +1905,7 @@ function showGuestLeaderboardPrompt(onDone) {
   openModal(
     '<div class="big">🏁</div>' +
     '<h3>Leaderboard names need login</h3>' +
-    '<p>Create an account or sign in to show your name on today\'s leaderboard. Guests can still play, but show up as Guest.</p>' +
+    '<p>Create an account or sign in to appear on today\'s leaderboard. Guests can still play, but their scores stay private.</p>' +
     '<div class="auth-actions">' +
       '<button class="btn" id="dailySignup">Create account</button>' +
       '<button class="btn secondary" id="dailyLogin">Sign in</button>' +
@@ -2307,10 +2346,10 @@ async function submitRound() {
   recordRound(r.a + " → " + r.b, score);
 
   if (mode === "daily" && !dailyDone) {
-    dailyDone = { score, squares: dailySquares, n: activeDailyNumber };
+    dailyDone = { score, squares: dailySquares, n: activeDailyNumber, placements: Object.assign({}, placed) };
     try { await store.set("daily:" + activeDailyKey, JSON.stringify(dailyDone)); } catch (e) {}
     await recordDaily();
-    await postToLeaderboard(score, dailySquares);
+    await postToLeaderboard(score, dailySquares, placed);
     trackEvent("daily_complete", activeDailyKey);
     refreshDailyTag();
   } else if (mode === "archive") {
@@ -2416,6 +2455,16 @@ async function renderLeaderboard(board) {
   board = board || await getLeaderboard(todayKey());
   const el = $("leaderboard");
   if (!board.length) {
+    if (!signedIn && mode === "daily" && dailyDone) {
+      el.innerHTML = '<h3>Today\'s leaderboard</h3><div class="lb-note">No signed-in finishes yet today.</div>' +
+        '<div class="lb-note">Want your score here?</div><button class="lb-save" id="leaderboardSignin" type="button">Sign in to save score</button>';
+      $("leaderboardSignin").addEventListener("click", () => {
+        pendingAuthAction = syncSignedInDailyResult;
+        sfx.open();
+        showAuthModal("signup", "Sign in to save today's score to the leaderboard and keep your streak.");
+      });
+      return;
+    }
     el.innerHTML = '<h3>Today\'s leaderboard</h3><div class="lb-note">You\'re the first to finish today — top of the board by default 👑</div>';
     return;
   }
@@ -2441,8 +2490,19 @@ async function renderLeaderboard(board) {
     html += '<div class="lb-note">Your result</div>' + leaderboardRow(board[myRank], myRank, true);
   }
   html += top.map((e2, i) => leaderboardRow(e2, i, false)).join("");
+  if (!signedIn && mode === "daily" && dailyDone) {
+    html += '<div class="lb-note">Want your score here?</div><button class="lb-save" id="leaderboardSignin" type="button">Sign in to save score</button>';
+  }
   html += '<div class="lb-note">Top 25 shown' + (myRank >= 25 ? ' · you are rank #' + (myRank + 1) : '') + ' · names are public</div>';
   el.innerHTML = html;
+  const saveBtn = $("leaderboardSignin");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", () => {
+      pendingAuthAction = syncSignedInDailyResult;
+      sfx.open();
+      showAuthModal("signup", "Sign in to save today's score to the leaderboard and keep your streak.");
+    });
+  }
   el.querySelectorAll(".report-btn").forEach(btn => btn.addEventListener("click", () => reportName(btn.getAttribute("data-report"))));
 }
 

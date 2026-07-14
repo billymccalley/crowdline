@@ -83,6 +83,7 @@ DB_LOCK = threading.RLock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
 ROUND_IDS_CACHE = None
+ROUND_DETAILS_CACHE = None
 
 
 def now_iso():
@@ -265,14 +266,35 @@ def stable_hash(value):
 def round_ids():
     global ROUND_IDS_CACHE
     if ROUND_IDS_CACHE is None:
-        text = (PUBLIC_DIR / "index.html").read_text(encoding="utf-8")
-        seen = []
-        for match in re.finditer(r'\{\s*id:"([^"]+)"', text):
-            round_id = match.group(1)
-            if round_id not in seen:
-                seen.append(round_id)
-        ROUND_IDS_CACHE = seen or ["edible"]
+        ROUND_IDS_CACHE = list(round_details().keys()) or ["edible"]
     return ROUND_IDS_CACHE
+
+
+def round_details():
+    global ROUND_DETAILS_CACHE
+    if ROUND_DETAILS_CACHE is None:
+        text = (PUBLIC_DIR / "index.html").read_text(encoding="utf-8")
+        details = {}
+        pattern = re.compile(
+            r'\{\s*id:"([^"]+)",\s*a:"([^"]*)",\s*b:"([^"]*)",\s*items:\[(.*?)\]\s*\}',
+            re.S,
+        )
+        item_pattern = re.compile(r'\["([^"]+)",\s*([0-9.]+)\]')
+        for match in pattern.finditer(text):
+            round_id = match.group(1)
+            items = [
+                {"name": item.group(1), "seed": float(item.group(2))}
+                for item in item_pattern.finditer(match.group(4))
+            ]
+            if items:
+                details[round_id] = {
+                    "id": round_id,
+                    "a": match.group(2),
+                    "b": match.group(3),
+                    "items": items,
+                }
+        ROUND_DETAILS_CACHE = details
+    return ROUND_DETAILS_CACHE
 
 
 def daily_label_rank(label):
@@ -420,6 +442,38 @@ def clean_position(value):
     except (TypeError, ValueError):
         return None
     return max(0, min(100, position))
+
+
+def clean_placements(value):
+    if not isinstance(value, dict):
+        return {}
+    placements = {}
+    for item, raw_pos in value.items():
+        name = str(item or "").strip()[:80]
+        position = clean_position(raw_pos)
+        if name and position is not None:
+            placements[name] = position
+    return placements
+
+
+def suspicious_perfect_entry(round_id, score, squares, placements):
+    if score < 100:
+        return False
+    detail = round_details().get(round_id)
+    if not detail:
+        return False
+    items = detail["items"]
+    if clean_squares(squares) != "\U0001F7E9" * len(items):
+        return True
+    if not placements or any(item["name"] not in placements for item in items):
+        return True
+
+    exact_seed_hits = sum(
+        1
+        for item in items
+        if abs(placements[item["name"]] - item["seed"]) <= 0.03
+    )
+    return exact_seed_hits == len(items)
 
 
 def prune_rate_buckets(current_window):
@@ -1200,16 +1254,34 @@ class Handler(BaseHTTPRequestHandler):
             body = self.read_json()
             pid = clean_id(body.get("pid"), 40)
             user = self.auth_user()
-            if user:
-                pid = user["pid"]
-                body["name"] = public_player_name(user["name"])
+            if not user:
+                self.send_error_json(401, "Sign in to join the leaderboard")
+                return
+            pid = user["pid"]
+            body["name"] = public_player_name(user["name"])
             score = clean_score(body.get("score"))
             if not pid or score is None:
                 self.send_error_json(400, "Invalid leaderboard entry")
                 return
 
-            name = public_player_name(body.get("name")) if user else "Guest"
+            daily_row = locked_daily_round(day_key)
+            if not daily_row:
+                self.send_error_json(400, "Invalid daily")
+                return
+            round_id = daily_row["round_id"]
+            body_round_id = clean_id(body.get("roundId"), 80)
+            if body_round_id and body_round_id != round_id:
+                self.send_error_json(400, "Wrong daily round")
+                return
+            placements = clean_placements(body.get("placements"))
+
+            name = public_player_name(body.get("name"))
             squares = clean_squares(body.get("squares"))
+            if suspicious_perfect_entry(round_id, score, squares, placements):
+                DB.commit()
+                self.send_json(200, self.leaderboard(day_key))
+                return
+
             timestamp = now_iso()
             DB.execute(
                 """
@@ -1238,7 +1310,7 @@ class Handler(BaseHTTPRequestHandler):
             """
             SELECT player_id, name, score, squares
             FROM daily_results
-            WHERE day_key = ?
+            WHERE day_key = ? AND LOWER(name) != 'guest'
             ORDER BY score DESC, created_at ASC
             LIMIT 250
             """,
