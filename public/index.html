@@ -2694,7 +2694,7 @@ async function saveCurrentRoundCuration() {
   }
 }
 
-async function shareDaily(sourceBtn) {
+async function legacyShareDaily(sourceBtn) {
   const n = activeDailyNumber || dailyNumber();
   const key = activeDailyKey || todayKey();
   const r = await dailyRoundForKey(key);
@@ -2724,6 +2724,100 @@ async function shareDaily(sourceBtn) {
   if (ok) trackEvent("share_copied", key);
   sfx.click();
   setTimeout(() => { if (btn) btn.textContent = sourceBtn ? "Share today" : "Share"; }, 1600);
+}
+
+async function shareDaily(sourceBtn) {
+  const btn = sourceBtn || $("shareBtn");
+  const key = activeDailyKey || todayKey();
+  const text = buildDailyShareText();
+  let ok = false, usedNativeShare = false;
+  if (btn) btn.textContent = "Sharing...";
+
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "Crowdline", text });
+      ok = true;
+      usedNativeShare = true;
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      if (btn) btn.textContent = sourceBtn ? "Share today" : "Share";
+      return;
+    }
+  }
+
+  if (!ok) {
+    try {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    } catch (e) {
+      ok = copyTextFallback(text);
+    }
+  }
+
+  if (btn) btn.textContent = ok ? (usedNativeShare ? "Shared!" : "Copied!") : "Copy manually";
+  if (ok) trackEvent("share_copied", key);
+  else showManualShareModal(text);
+  sfx.click();
+  setTimeout(() => { if (btn) btn.textContent = sourceBtn ? "Share today" : "Share"; }, 1600);
+}
+
+function buildDailyShareText() {
+  const n = activeDailyNumber || (dailyDone && dailyDone.n) || dailyNumber();
+  const round = gameRounds && gameRounds.length ? gameRounds[0] : dailyRound(n);
+  const score = dailyDone ? dailyDone.score : (scores[scores.length - 1] || 0);
+  const sq = cleanSquares((dailyDone && dailyDone.squares) || dailySquares || "");
+  return "Crowdline #" + n + "\n" +
+    round.a + " -> " + round.b + "\n" +
+    sq + "  " + score + "/100\n" +
+    "https://playcrowdline.com";
+}
+
+function copyTextFallback(text) {
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.top = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+
+function showManualShareModal(text) {
+  openModal(
+    '<div class="big">↗</div>' +
+    '<h3>Copy your result</h3>' +
+    '<p>Your browser blocked automatic copying. Tap the text, select all, then copy.</p>' +
+    '<textarea id="manualShareText" readonly>' + esc(text) + '</textarea>' +
+    '<button class="btn" id="manualShareCopy">Try copy again</button>'
+  );
+  const area = $("manualShareText");
+  setTimeout(() => {
+    area.focus();
+    area.select();
+    area.setSelectionRange(0, area.value.length);
+  }, 100);
+  $("manualShareCopy").addEventListener("click", async () => {
+    let ok = false;
+    try {
+      await navigator.clipboard.writeText(area.value);
+      ok = true;
+    } catch (e) {
+      ok = copyTextFallback(area.value);
+    }
+    $("manualShareCopy").textContent = ok ? "Copied!" : "Select text above";
+    if (ok) trackEvent("share_copied", activeDailyKey || todayKey());
+  });
 }
 
 /* ================= STATS SCREEN ================= */
