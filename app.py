@@ -548,17 +548,6 @@ def validate_player_store_value(key, value):
     if key == "pref:name":
         name = public_player_name(value)
         return name if name else None
-    if key == "stats":
-        return validate_stats_value(value)
-
-    for prefix in ("daily", "archive"):
-        marker = prefix + ":"
-        if key.startswith(marker):
-            day_key = clean_day_key(key[len(marker):])
-            if not day_key:
-                return None
-            return validate_result_value(value, prefix, day_key)
-
     return None
 
 
@@ -579,6 +568,10 @@ def valid_store_key(scope, key):
     return False
 
 
+def writable_player_store_key(key):
+    return key in {"pref:muted", "pref:name"}
+
+
 def clean_position(value):
     try:
         position = float(value)
@@ -597,6 +590,133 @@ def clean_placements(value):
         if name and position is not None:
             placements[name] = position
     return placements
+
+
+def score_square(distance):
+    if distance <= 8:
+        return "\U0001F7E9"
+    if distance <= 18:
+        return "\U0001F7E8"
+    if distance <= 32:
+        return "\U0001F7E7"
+    return "\U0001F7E5"
+
+
+def calculate_round_result(round_id, player_id, placements):
+    detail = round_details().get(round_id)
+    if not detail:
+        return None
+
+    items = detail["items"]
+    expected = {item["name"] for item in items}
+    if any(name not in placements for name in expected):
+        return None
+
+    rows = DB.execute(
+        """
+        SELECT item, SUM(position) AS total, COUNT(*) AS count
+        FROM crowd_votes
+        WHERE round_id = ? AND player_id != ?
+        GROUP BY item
+        """,
+        (round_id, player_id),
+    ).fetchall()
+    crowd = {row["item"]: row for row in rows}
+
+    total_distance = 0
+    squares = []
+    for item in items:
+        row = crowd.get(item["name"])
+        crowd_sum = float(row["total"] or 0) if row else 0
+        crowd_count = int(row["count"] or 0) if row else 0
+        avg = (item["seed"] * 6 + crowd_sum) / (6 + crowd_count)
+        distance = abs(avg - placements[item["name"]])
+        total_distance += distance
+        squares.append(score_square(distance))
+
+    avg_distance = total_distance / len(items)
+    score = round(max(0, 100 - avg_distance * 1.6))
+    return {"score": max(0, min(100, score)), "squares": "".join(squares)}
+
+
+def daily_result_value(player_id, day_key):
+    row = DB.execute(
+        """
+        SELECT score, squares
+        FROM daily_results
+        WHERE player_id = ? AND day_key = ?
+        """,
+        (player_id, day_key),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "score": clean_score(row["score"]) or 0,
+        "squares": clean_squares(row["squares"]),
+        "n": daily_number_for_key(day_key),
+    }
+
+
+def player_stats_value(player_id):
+    rows = DB.execute(
+        """
+        SELECT day_key, score
+        FROM daily_results
+        WHERE player_id = ?
+        ORDER BY day_key ASC
+        """,
+        (player_id,),
+    ).fetchall()
+    if not rows:
+        return {
+            "g": 0,
+            "r": 0,
+            "s": 0,
+            "hi": None,
+            "lo": None,
+            "d": 0,
+            "streak": 0,
+            "bestStreak": 0,
+            "lastDaily": "",
+        }
+
+    total = 0
+    high = None
+    low = None
+    best_streak = 0
+    streak = 0
+    previous_date = None
+    for row in rows:
+        score = clean_score(row["score"]) or 0
+        day_key = row["day_key"]
+        label = "Daily #" + str(daily_number_for_key(day_key))
+        record = {"ax": label, "sc": score}
+        total += score
+        if high is None or score > high["sc"]:
+            high = record
+        if low is None or score < low["sc"]:
+            low = record
+
+        current_date = date_for_key(day_key)
+        if previous_date and current_date == previous_date + dt.timedelta(days=1):
+            streak += 1
+        else:
+            streak = 1
+        best_streak = max(best_streak, streak)
+        previous_date = current_date
+
+    last_daily = rows[-1]["day_key"]
+    return {
+        "g": len(rows),
+        "r": len(rows),
+        "s": total,
+        "hi": high,
+        "lo": low,
+        "d": len(rows),
+        "streak": streak,
+        "bestStreak": best_streak,
+        "lastDaily": last_daily,
+    }
 
 
 def suspicious_perfect_entry(round_id, score, squares, placements):
@@ -1274,6 +1394,17 @@ class Handler(BaseHTTPRequestHandler):
                     return
 
             if self.command == "GET":
+                if scope == "player" and key == "stats":
+                    self.send_json(200, {"value": json.dumps(player_stats_value(player_id), ensure_ascii=False)})
+                    return
+                if scope == "player" and (key.startswith("daily:") or key.startswith("archive:")):
+                    day_key = key.split(":", 1)[1]
+                    result = daily_result_value(player_id, day_key)
+                    if not result:
+                        self.send_json(404, {"value": None})
+                        return
+                    self.send_json(200, {"value": json.dumps(result, ensure_ascii=False)})
+                    return
                 row = DB.execute(
                     """
                     SELECT value FROM kv_store
@@ -1293,6 +1424,9 @@ class Handler(BaseHTTPRequestHandler):
 
             if scope == "shared":
                 self.send_error_json(403, "Shared storage writes use dedicated endpoints")
+                return
+            if scope == "player" and not writable_player_store_key(key):
+                self.send_error_json(403, "That value is managed by the game server")
                 return
 
             body = self.read_json()
@@ -1428,8 +1562,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             pid = user["pid"]
             body["name"] = public_player_name(user["name"])
-            score = clean_score(body.get("score"))
-            if not pid or score is None:
+            if not pid:
                 self.send_error_json(400, "Invalid leaderboard entry")
                 return
 
@@ -1443,9 +1576,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error_json(400, "Wrong daily round")
                 return
             placements = clean_placements(body.get("placements"))
+            result = calculate_round_result(round_id, pid, placements)
+            if not result:
+                self.send_error_json(400, "Invalid placements")
+                return
+            score = result["score"]
+            squares = result["squares"]
 
             name = public_player_name(body.get("name"))
-            squares = clean_squares(body.get("squares"))
             if suspicious_perfect_entry(round_id, score, squares, placements):
                 DB.commit()
                 self.send_json(200, self.leaderboard(day_key))
