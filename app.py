@@ -474,6 +474,111 @@ def clean_score(value):
     return max(0, min(100, score))
 
 
+def clean_nonnegative_int(value, max_value=1000000):
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(max_value, number))
+
+
+def clean_stat_record(value):
+    if not isinstance(value, dict):
+        return None
+    axis = str(value.get("ax") or "").strip()[:160]
+    score = clean_score(value.get("sc"))
+    if not axis or score is None:
+        return None
+    return {"ax": axis, "sc": score}
+
+
+def validate_stats_value(value):
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    last_daily = clean_day_key(data.get("lastDaily")) if data.get("lastDaily") else ""
+    if last_daily and not is_public_day_available(last_daily):
+        last_daily = ""
+    clean = {
+        "g": clean_nonnegative_int(data.get("g")),
+        "r": clean_nonnegative_int(data.get("r")),
+        "s": clean_nonnegative_int(data.get("s"), 100000000),
+        "hi": clean_stat_record(data.get("hi")),
+        "lo": clean_stat_record(data.get("lo")),
+        "d": clean_nonnegative_int(data.get("d")),
+        "streak": clean_nonnegative_int(data.get("streak")),
+        "bestStreak": clean_nonnegative_int(data.get("bestStreak")),
+        "lastDaily": last_daily,
+    }
+    return json.dumps(clean, ensure_ascii=False)
+
+
+def validate_result_value(value, key_prefix, day_key):
+    if not is_public_day_available(day_key):
+        return None
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    score = clean_score(data.get("score"))
+    if score is None:
+        return None
+    clean = {
+        "score": score,
+        "squares": clean_squares(data.get("squares")),
+        "n": clean_nonnegative_int(data.get("n"), 100000),
+    }
+    if key_prefix == "daily":
+        placements = clean_placements(data.get("placements"))
+        if placements:
+            clean["placements"] = placements
+    return json.dumps(clean, ensure_ascii=False)
+
+
+def validate_player_store_value(key, value):
+    if len(value) > 5000:
+        return None
+    if key == "pref:muted":
+        return value if value in {"0", "1"} else None
+    if key == "pref:name":
+        name = public_player_name(value)
+        return name if name else None
+    if key == "stats":
+        return validate_stats_value(value)
+
+    for prefix in ("daily", "archive"):
+        marker = prefix + ":"
+        if key.startswith(marker):
+            day_key = clean_day_key(key[len(marker):])
+            if not day_key:
+                return None
+            return validate_result_value(value, prefix, day_key)
+
+    return None
+
+
+def valid_store_key(scope, key):
+    if scope == "player":
+        if key in {"pref:muted", "pref:name", "stats"}:
+            return True
+        if key.startswith("daily:") or key.startswith("archive:"):
+            day_key = key.split(":", 1)[1]
+            return bool(clean_day_key(day_key) and is_public_day_available(day_key))
+        return False
+    if scope == "shared":
+        if key.startswith("crowd:"):
+            return bool(clean_id(key.split(":", 1)[1], 80))
+        if key.startswith("lb:"):
+            day_key = key.split(":", 1)[1]
+            return bool(clean_day_key(day_key) and is_public_day_available(day_key))
+    return False
+
+
 def clean_position(value):
     try:
         position = float(value)
@@ -1154,12 +1259,19 @@ class Handler(BaseHTTPRequestHandler):
         if not key or (not is_shared and not player_id):
             self.send_error_json(400, "Invalid storage key")
             return
+        if not valid_store_key(scope, key):
+            self.send_error_json(400, "Unsupported storage key")
+            return
 
         with DB_LOCK:
             user = self.auth_user() if scope == "player" else None
-            if user and player_id != user["pid"]:
-                self.send_error_json(403, "Signed-in storage belongs to another player")
-                return
+            if scope == "player":
+                if not user:
+                    self.send_error_json(401, "Sign in to use server storage")
+                    return
+                if player_id != user["pid"]:
+                    self.send_error_json(403, "Storage belongs to another player")
+                    return
 
             if self.command == "GET":
                 row = DB.execute(
@@ -1175,10 +1287,19 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, {"value": row["value"]})
                 return
 
+            if self.command != "PUT":
+                self.send_error_json(405, "Method not allowed")
+                return
+
+            if scope == "shared":
+                self.send_error_json(403, "Shared storage writes use dedicated endpoints")
+                return
+
             body = self.read_json()
             value = str(body.get("value", ""))
-            if len(value) > 20000:
-                self.send_error_json(400, "Stored value is too large")
+            value = validate_player_store_value(key, value)
+            if value is None:
+                self.send_error_json(400, "Invalid stored value")
                 return
 
             existing = DB.execute(
